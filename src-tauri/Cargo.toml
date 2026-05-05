@@ -1,0 +1,82 @@
+[package]
+name = "tauri-vue-bi"
+version = "0.1.0"
+description = "BI Dashboard powered by Tauri + Vue3 + DuckDB/Polars"
+authors = ["alexwoo79"]
+edition = "2021"
+rust-version = "1.77.2"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# See more keys and their definitions at:
+# https://doc.rust-lang.org/cargo/reference/manifest.html
+# ──────────────────────────────────────────────────────────────────────────────
+
+[lib]
+# The cdylib crate type is required for Tauri to embed the library.
+name = "tauri_vue_bi_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "tauri-vue-bi"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# ── Tauri ──────────────────────────────────────────────────────────────────────
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+
+# ── Async runtime ─────────────────────────────────────────────────────────────
+tokio = { version = "1", features = ["full"] }
+
+# ── Data processing: Polars ───────────────────────────────────────────────────
+# Polars is a DataFrame library used for data loading, cleaning, and
+# transformations (fillna, dedup, type-cast, groupby, melt/unpivot, etc.).
+polars = { version = "0.46", features = [
+    "lazy",
+    "csv",
+    "strings",
+    "dtype-date",
+    "dtype-datetime",
+    "dtype-duration",
+    "string_pad",
+    "regex",
+    "pivot",
+    "rows",
+    "serde",
+] }
+polars-ops = { version = "0.46", features = ["pivot"] }
+regex = "1"
+
+# ── Serialization ─────────────────────────────────────────────────────────────
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# ── Error handling ────────────────────────────────────────────────────────────
+anyhow = "1"
+thiserror = "1"
+
+# ── Excel I/O ─────────────────────────────────────────────────────────────────
+# calamine: read xlsx/xls/xlsm/ods files (pure Rust, no libxlsx dependency)
+calamine = { version = "0.26", features = ["dates"] }
+# rust_xlsxwriter: write xlsx files (pure Rust)
+rust_xlsxwriter = "0.80"
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+# Used for generating unique session/state keys
+uuid = { version = "1", features = ["v4"] }
+# Mutex-guarded global state
+once_cell = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+
+[profile.dev]
+incremental = true

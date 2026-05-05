@@ -1,0 +1,33 @@
+{
+  "name": "tauri-vue-bi",
+  "version": "0.1.0",
+  "description": "BI Dashboard powered by Tauri + Vue3 + DuckDB/Polars + ECharts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-fs": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "echarts": "^5",
+    "element-plus": "^2",
+    "pinia": "^2",
+    "vue": "^3.4",
+    "vue-echarts": "^7",
+    "vue-router": "^4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^20",
+    "@vitejs/plugin-vue": "^5",
+    "typescript": "^5",
+    "vite": "^5",
+    "vue-tsc": "^2"
+  }
+}

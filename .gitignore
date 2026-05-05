@@ -1,0 +1,11 @@
+# Tauri build artifacts
+src-tauri/target/
+
+# Frontend build artifacts
+dist/
+node_modules/
+
+# Editor
+.DS_Store
+*.swp
+.vscode/
