@@ -28,9 +28,6 @@ jobs:
             args: ''
 
     runs-on: ${{ matrix.platform }}
-    defaults:
-      run:
-        working-directory: tauri-vue-bi
 
     steps:
       - name: Checkout repository
@@ -41,7 +38,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: tauri-vue-bi/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -67,7 +64,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: tauri-vue-bi
+          projectPath: .
           tagName: ${{ github.event.inputs.release_tag || github.ref_name }}
           releaseName: BI 分析工具 ${{ github.event.inputs.release_tag || github.ref_name }}
           releaseBody: |
