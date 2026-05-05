@@ -8,7 +8,7 @@ CYAN  := \033[36m
 YELLOW:= \033[33m
 
 .PHONY: help install dev build bundle dmg test test-rust test-ts lint fmt clean \
-	check-deps icon update-deps release-check release-tag release-push release
+	check-deps icon update-deps release-check release-tag release-tag-fix release-push release
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 默认目标：帮助信息
@@ -25,6 +25,9 @@ help:
 	@printf "  make dmg          仅构建 macOS DMG 安装包\n"
 	@printf "  make release-check 发布前检查（build + test-rust）\n"
 	@printf "  make release-tag TAG=tauri-vue-bi-v0.1.0   创建发布 tag\n"
+	@printf "                    （若 tag 已存在，会给出可选修复命令）\n"
+	@printf "  make release-tag-fix TAG=tauri-vue-bi-v0.1.0 FIX=3\n"
+	@printf "                    自动执行冲突修复（FIX=1/2/3）\n"
 	@printf "  make release-push TAG=tauri-vue-bi-v0.1.0  推送发布 tag 到 GitHub\n"
 	@printf "  make release TAG=tauri-vue-bi-v0.1.0       检查 + 打 tag + 推送\n"
 	@printf "\n$(CYAN)测试$(RESET)\n"
@@ -101,9 +104,50 @@ release-check: build test-rust
 release-tag:
 	@test -n "$(TAG)" || (printf "$(YELLOW)!$(RESET) 用法: make release-tag TAG=tauri-vue-bi-v0.1.0\n" && exit 1)
 	@git rev-parse --is-inside-work-tree >/dev/null 2>&1 || (printf "$(YELLOW)!$(RESET) 当前目录不在 git 仓库中\n" && exit 1)
-	@git rev-parse "$(TAG)" >/dev/null 2>&1 && (printf "$(YELLOW)!$(RESET) tag $(TAG) 已存在\n" && exit 1) || true
+	@local_exists=0; remote_exists=0; \
+	git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null 2>&1 && local_exists=1 || true; \
+	git ls-remote --tags origin "refs/tags/$(TAG)" "refs/tags/$(TAG)^{}" | grep -q . && remote_exists=1 || true; \
+	if [ $$local_exists -eq 1 ] || [ $$remote_exists -eq 1 ]; then \
+	  printf "$(YELLOW)!$(RESET) 检测到发布 tag 冲突: $(TAG)\n"; \
+	  [ $$local_exists -eq 1 ] && printf "  - 本地已存在同名 tag\n" || true; \
+	  [ $$remote_exists -eq 1 ] && printf "  - 远端 origin 已存在同名 tag\n" || true; \
+	  printf "\n可选修复命令（按需选择其一执行）：\n"; \
+	  printf "  [1] 仅推送本地 tag（适用于本地有、远端无）\n"; \
+	  printf "      git push origin \"$(TAG)\"\n\n"; \
+	  printf "  [2] 在当前提交重建本地 tag（不动远端）\n"; \
+	  printf "      git tag -d \"$(TAG)\"\n"; \
+	  printf "      git tag -a \"$(TAG)\" -m \"Release $(TAG)\"\n\n"; \
+	  printf "  [3] 强制重建并同步远端（高风险，确保团队已知）\n"; \
+	  printf "      git tag -d \"$(TAG)\"\n"; \
+	  printf "      git push origin :refs/tags/$(TAG)\n"; \
+	  printf "      git tag -a \"$(TAG)\" -m \"Release $(TAG)\"\n"; \
+	  printf "      git push origin \"$(TAG)\"\n"; \
+	  exit 1; \
+	fi
 	@printf "$(BOLD)创建发布 tag: $(TAG)$(RESET)\n"
 	git tag -a "$(TAG)" -m "Release $(TAG)"
+
+release-tag-fix:
+	@test -n "$(TAG)" || (printf "$(YELLOW)!$(RESET) 用法: make release-tag-fix TAG=tauri-vue-bi-v0.1.0 FIX=3\n" && exit 1)
+	@test -n "$(FIX)" || (printf "$(YELLOW)!$(RESET) 用法: make release-tag-fix TAG=tauri-vue-bi-v0.1.0 FIX=1|2|3\n" && exit 1)
+	@git rev-parse --is-inside-work-tree >/dev/null 2>&1 || (printf "$(YELLOW)!$(RESET) 当前目录不在 git 仓库中\n" && exit 1)
+	@if [ "$(FIX)" = "1" ]; then \
+	  printf "$(BOLD)执行修复 [1]：仅推送本地 tag$(RESET)\n"; \
+	  git push origin "$(TAG)"; \
+	elif [ "$(FIX)" = "2" ]; then \
+	  printf "$(BOLD)执行修复 [2]：在当前提交重建本地 tag$(RESET)\n"; \
+	  git tag -d "$(TAG)" >/dev/null 2>&1 || true; \
+	  git tag -a "$(TAG)" -m "Release $(TAG)"; \
+	elif [ "$(FIX)" = "3" ]; then \
+	  printf "$(BOLD)执行修复 [3]：强制重建并同步远端$(RESET)\n"; \
+	  git tag -d "$(TAG)" >/dev/null 2>&1 || true; \
+	  git push origin :refs/tags/$(TAG) >/dev/null 2>&1 || true; \
+	  git tag -a "$(TAG)" -m "Release $(TAG)"; \
+	  git push origin "$(TAG)"; \
+	else \
+	  printf "$(YELLOW)!$(RESET) FIX 参数无效：$(FIX)（仅支持 1/2/3）\n"; \
+	  exit 1; \
+	fi
 
 release-push:
 	@test -n "$(TAG)" || (printf "$(YELLOW)!$(RESET) 用法: make release-push TAG=tauri-vue-bi-v0.1.0\n" && exit 1)
