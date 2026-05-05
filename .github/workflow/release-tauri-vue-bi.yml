@@ -1,0 +1,83 @@
+name: Release tauri-vue-bi
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to publish, for example v0.1.0
+        required: true
+        type: string
+  push:
+    tags:
+      - 'tauri-vue-bi-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: ''
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        working-directory: tauri-vue-bi
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tauri-vue-bi/package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libxdo-dev \
+            libssl-dev
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and publish Tauri bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: tauri-vue-bi
+          tagName: ${{ github.event.inputs.release_tag || github.ref_name }}
+          releaseName: BI 分析工具 ${{ github.event.inputs.release_tag || github.ref_name }}
+          releaseBody: |
+            Automated release for tauri-vue-bi.
+
+            Artifacts included:
+            - macOS installer/app bundle
+            - Windows installer
+            - Linux package bundle
+          releaseDraft: false
+          prerelease: false
+          includeDebug: false
+          args: ${{ matrix.args }}
