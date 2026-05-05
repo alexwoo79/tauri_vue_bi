@@ -20,6 +20,7 @@ help:
 	@printf "  make dev          启动开发模式（Tauri + Vite 热重载）\n"
 	@printf "\n$(CYAN)构建 & 打包$(RESET)\n"
 	@printf "  make build        构建前端（vite build + vue-tsc 类型检查）\n"
+	@printf "  make icon         重新生成 Tauri 图标资源（ico/icns/png）\n"
 	@printf "  make bundle       完整打包桌面应用（生成 .dmg/.app/.deb/.exe 等）\n"
 	@printf "  make dmg          仅构建 macOS DMG 安装包\n"
 	@printf "  make release-check 发布前检查（build + test-rust）\n"
@@ -77,13 +78,19 @@ build:
 	@printf "$(BOLD)构建前端...$(RESET)\n"
 	npm run build
 
+# 重新生成 Tauri 图标（避免损坏/空文件导致打包失败）
+icon:
+	@test -f src-tauri/icons/icon-source.svg || (printf "$(YELLOW)!$(RESET) 缺少 src-tauri/icons/icon-source.svg\n" && exit 1)
+	@printf "$(BOLD)生成 Tauri 图标资源...$(RESET)\n"
+	npm run tauri -- icon src-tauri/icons/icon-source.svg
+
 # 完整打包：前端 build + Rust release 编译 + 平台安装包
-bundle:
+bundle: icon
 	@printf "$(BOLD)打包桌面应用（release 模式）...$(RESET)\n"
 	npm run tauri -- build
 
 # 仅构建 macOS DMG 安装包
-dmg:
+dmg: icon
 	@printf "$(BOLD)构建 macOS DMG 安装包（release 模式）...$(RESET)\n"
 	@uname | grep -q "Darwin" || (printf "$(YELLOW)!$(RESET) 当前非 macOS，无法构建 DMG\n" && exit 1)
 	npm run tauri -- build --bundles dmg

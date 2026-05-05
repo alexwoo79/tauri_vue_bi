@@ -16,15 +16,22 @@ permissions:
 
 jobs:
   publish-tauri:
+    name: publish-tauri (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
+          - name: macOS Intel (DMG)
+            platform: macos-13
+            args: --target x86_64-apple-darwin --bundles dmg
+          - name: macOS Apple Silicon (DMG)
+            platform: macos-14
+            args: --target aarch64-apple-darwin --bundles dmg
+          - name: Linux
+            platform: ubuntu-22.04
             args: ''
-          - platform: ubuntu-22.04
-            args: ''
-          - platform: windows-latest
+          - name: Windows
+            platform: windows-latest
             args: ''
 
     runs-on: ${{ matrix.platform }}
@@ -71,7 +78,8 @@ jobs:
             Automated release for tauri-vue-bi.
 
             Artifacts included:
-            - macOS installer/app bundle
+            - macOS DMG (Intel: x86_64)
+            - macOS DMG (Apple Silicon: arm64)
             - Windows installer
             - Linux package bundle
           releaseDraft: false
