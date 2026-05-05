@@ -249,14 +249,16 @@ macro_rules! take_df {
 /// `skip_head`  – number of rows to skip at the top
 /// `skip_tail`  – number of rows to skip at the bottom
 /// `header_row` – 0-based index of the header row (-1 = first row is header)
+/// `header_locked` – when true, lock header_row as absolute file row; skip_head applies below header
 #[tauri::command]
 async fn load_file(
     path: String,
     skip_head: usize,
     skip_tail: usize,
     header_row: i64,
+    header_locked: bool,
 ) -> ApiResult<ChartPayload> {
-    match commands::load_file_impl(&path, skip_head, skip_tail, header_row) {
+    match commands::load_file_impl(&path, skip_head, skip_tail, header_row, header_locked) {
         Ok(df) => {
             // 只序列化预览行，全量 DataFrame 保存到全局状态
             let payload = df_to_payload(&df, Some(PREVIEW_LIMIT));

@@ -18,6 +18,7 @@
 
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import appLogo from './assets/app-logo.png'
 
 const router = useRouter()
 const route = useRoute()
@@ -80,7 +81,7 @@ function toggleSidebar() {
     <!-- 侧边栏 Sidebar -->
     <el-aside :width="sidebarWidth" class="sidebar" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
       <div class="sidebar-logo">
-        <span class="logo-icon">📊</span>
+        <img class="logo-icon-img" :src="appLogo" alt="App logo" />
         <span v-show="!sidebarCollapsed" class="logo-text">BI 分析工具</span>
       </div>
 
@@ -110,6 +111,10 @@ function toggleSidebar() {
           <template #title>📅 甘特图分析</template>
         </el-menu-item>
       </el-menu>
+
+      <div class="sidebar-footer" :class="{ collapsed: sidebarCollapsed }">
+        <span>{{ sidebarCollapsed ? 'A26' : 'Alex 2026' }}</span>
+      </div>
     </el-aside>
 
     <!-- 主内容区 Main content -->
@@ -168,9 +173,11 @@ function toggleSidebar() {
   overflow: hidden;
 }
 
-.logo-icon {
-  font-size: 24px;
+.logo-icon-img {
+  width: 28px;
+  height: 28px;
   flex: 0 0 auto;
+  border-radius: 4px;
 }
 
 .logo-text {
@@ -185,6 +192,22 @@ function toggleSidebar() {
 .sidebar-menu {
   flex: 1;
   border-right: none;
+}
+
+.sidebar-footer {
+  height: 34px;
+  border-top: 1px solid var(--el-border-color);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sidebar-footer.collapsed {
+  justify-content: center;
+  padding: 0;
 }
 
 .app-header {

@@ -14,6 +14,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   publish-tauri:
     name: publish-tauri (${{ matrix.name }})
@@ -22,10 +25,10 @@ jobs:
       matrix:
         include:
           - name: macOS Intel (DMG)
-            platform: macos-13
+            platform: macos-15-intel
             args: --target x86_64-apple-darwin --bundles dmg
           - name: macOS Apple Silicon (DMG)
-            platform: macos-14
+            platform: macos-15
             args: --target aarch64-apple-darwin --bundles dmg
           - name: Linux
             platform: ubuntu-22.04
@@ -38,10 +41,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm

@@ -17,7 +17,7 @@
 //      g. 类型转换        (type cast)
 //   4. 预览清洗结果 + 导出（通过 Tauri 文件系统）
 
-import { shallowRef, ref, computed } from 'vue'
+import { shallowRef, ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { ElMessage } from 'element-plus'
@@ -32,7 +32,14 @@ const filePath = ref('')
 const skipHead = ref(0)
 const skipTail = ref(0)
 const headerRow = ref(-1)
+const lockHeaderRow = ref(false)
 const loading = ref(false)
+
+watch(headerRow, (v) => {
+  if (v < 0) {
+    lockHeaderRow.value = false
+  }
+})
 
 // 清洗参数
 const filterCols = ref<string[]>([])
@@ -142,6 +149,7 @@ async function loadFile() {
       skipHead: skipHead.value,
       skipTail: skipTail.value,
       headerRow: headerRow.value,
+      headerLocked: lockHeaderRow.value,
     })
     const t2 = performance.now()
     console.log(`⏱️  Tauri IPC: ${(t2 - t1).toFixed(2)}ms`)
@@ -424,6 +432,11 @@ async function exportFile(format: 'csv' | 'xlsx') {
             <el-form-item label="表头行索引">
               <el-input-number v-model="headerRow" :min="-1" :max="9999" />
               <el-text class="hint" size="small">-1 = 首行为表头</el-text>
+            </el-form-item>
+            <el-form-item label="锁定表头行">
+              <el-checkbox v-model="lockHeaderRow" :disabled="headerRow < 0">
+                锁定后，跳过开头行从表头下一行开始计算
+              </el-checkbox>
             </el-form-item>
             <el-form-item>
               <el-button class="action-btn load-btn" type="primary" :loading="loading" @click="loadFile">

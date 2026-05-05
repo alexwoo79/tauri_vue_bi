@@ -24,6 +24,7 @@ use polars_ops::frame::pivot::{pivot, PivotAgg};
 use regex::Regex;
 use rust_xlsxwriter::{Format, Workbook};
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy)]
@@ -40,12 +41,15 @@ enum TemporalKind {
 ///
 /// - Rows `[0, skip_head)` are dropped from the top.
 /// - Rows `[len - skip_tail, len)` are dropped from the bottom.
-/// - If `header_row >= 0`, that (0-based, post-skip) row is promoted to header.
+/// - If `header_row >= 0`, that row is promoted to header.
+/// - When `header_locked = true`, `header_row` is treated as an absolute row index
+///   in the original file, and `skip_head` is applied to data rows below the header.
 pub fn load_file_impl(
     path: &str,
     skip_head: usize,
     skip_tail: usize,
     header_row: i64,
+    header_locked: bool,
 ) -> Result<DataFrame> {
     let p = Path::new(path);
     let ext = p
@@ -54,49 +58,51 @@ pub fn load_file_impl(
         .unwrap_or("")
         .to_lowercase();
 
-    let mut df = match ext.as_str() {
+    let df = match ext.as_str() {
         "csv" => {
-            // Read without a header so we can honour skip/header_row ourselves.
-            CsvReadOptions::default()
-                .with_has_header(true) // Polars requires has_header=true to use skip_rows, even if we rename later
-                .with_skip_rows(skip_head)
-                .try_into_reader_with_file_path(Some(p.to_path_buf()))
-                .context("Failed to open CSV")?
-                .finish()
-                .context("Failed to parse CSV")?
+            if header_row >= 0 {
+                let hr = header_row as usize;
+                if header_locked {
+                    // Locked mode: header_row is absolute; skip_head applies below header.
+                    let raw = read_csv_impl(p, false, 0)?;
+                    promote_header_and_trim(raw, hr, skip_head, skip_tail)?
+                } else {
+                    // Legacy mode: header_row is relative to post-skip rows.
+                    let raw = read_csv_impl(p, false, skip_head)?;
+                    promote_header_and_trim(raw, hr, 0, skip_tail)?
+                }
+            } else {
+                // Default mode: first non-skipped row is header.
+                let mut parsed = read_csv_impl(p, true, skip_head)?;
+                if skip_tail > 0 {
+                    let keep = parsed.height().saturating_sub(skip_tail);
+                    parsed = parsed.slice(0, keep);
+                }
+                parsed
+            }
         }
         "xlsx" | "xls" | "xlsm" | "ods" => {
-            read_excel_impl(p, skip_head, skip_tail)?
+            if header_row >= 0 {
+                let hr = header_row as usize;
+                if header_locked {
+                    // Locked mode: use absolute header row, then skip data rows below header.
+                    let mut parsed = read_excel_impl(p, hr, skip_tail)?;
+                    if skip_head > 0 {
+                        let keep = parsed.height().saturating_sub(skip_head);
+                        parsed = parsed.slice(skip_head as i64, keep);
+                    }
+                    parsed
+                } else {
+                    // Legacy mode: header_row is relative to post-skip rows.
+                    let combined_skip = skip_head.saturating_add(hr);
+                    read_excel_impl(p, combined_skip, skip_tail)?
+                }
+            } else {
+                read_excel_impl(p, skip_head, skip_tail)?
+            }
         }
         other => bail!("Unsupported file extension: .{other}"),
     };
-
-    // Drop trailing rows
-    if skip_tail > 0 && skip_tail < df.height() {
-        df = df.slice(0, df.height() - skip_tail);
-    }
-
-    // Promote header row
-    if header_row >= 0 {
-        let hr = header_row as usize;
-        if hr < df.height() {
-            // Extract the header row values as strings
-            let new_names: Vec<String> = df
-                .get_row(hr)
-                .map_err(|e| anyhow!("{e}"))?
-                .0
-                .iter()
-                .map(|v| format!("{v}"))
-                .collect();
-            // Drop the header row from data
-            df = df.slice(hr as i64 + 1, df.height() - hr - 1);
-            // Rename columns
-            for (i, name) in new_names.into_iter().enumerate() {
-                df.rename(&format!("column_{i}"), name.as_str().into())
-                    .map_err(|e| anyhow!("{e}"))?;
-            }
-        }
-    }
 
     // Drop fully-null rows and columns
     let df = drop_all_null_cols(df);
@@ -105,6 +111,100 @@ pub fn load_file_impl(
     // This improves downstream default field inference for Gantt and date filters.
     let df = auto_cast_temporal_columns(df)?;
     Ok(df)
+}
+
+fn read_csv_impl(path: &Path, has_header: bool, skip_rows: usize) -> Result<DataFrame> {
+    CsvReadOptions::default()
+        .with_has_header(has_header)
+        .with_skip_rows(skip_rows)
+        .try_into_reader_with_file_path(Some(path.to_path_buf()))
+        .context("Failed to open CSV")?
+        .finish()
+        .context("Failed to parse CSV")
+}
+
+fn promote_header_and_trim(
+    mut df: DataFrame,
+    header_row: usize,
+    skip_head_after_header: usize,
+    skip_tail: usize,
+) -> Result<DataFrame> {
+    if df.width() == 0 {
+        return Ok(df);
+    }
+    if header_row >= df.height() {
+        bail!(
+            "Header row index {header_row} out of range (rows: {})",
+            df.height()
+        );
+    }
+
+    let new_names = sanitize_header_names(
+        df.get_row(header_row)
+            .map_err(|e| anyhow!("{e}"))?
+            .0
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                let raw = format!("{v}");
+                let trimmed = raw.trim().trim_matches('"').trim().to_string();
+                if trimmed.is_empty() {
+                    format!("column_{i}")
+                } else {
+                    trimmed
+                }
+            })
+            .collect(),
+    );
+
+    let old_names: Vec<String> = df
+        .get_column_names()
+        .iter()
+        .map(|n| n.as_str().to_string())
+        .collect();
+
+    for (i, old_name) in old_names.iter().enumerate() {
+        df.rename(old_name, new_names[i].as_str().into())
+            .map_err(|e| anyhow!("{e}"))?;
+    }
+
+    let data_start = header_row
+        .saturating_add(1)
+        .saturating_add(skip_head_after_header);
+    if data_start >= df.height() {
+        return Ok(df.slice(0, 0));
+    }
+
+    let available = df.height() - data_start;
+    let keep = available.saturating_sub(skip_tail);
+    Ok(df.slice(data_start as i64, keep))
+}
+
+fn sanitize_header_names(names: Vec<String>) -> Vec<String> {
+    let mut used: HashSet<String> = HashSet::new();
+    let mut out: Vec<String> = Vec::with_capacity(names.len());
+
+    for (i, name) in names.into_iter().enumerate() {
+        let base = {
+            let t = name.trim();
+            if t.is_empty() {
+                format!("column_{i}")
+            } else {
+                t.to_string()
+            }
+        };
+
+        let mut candidate = base.clone();
+        let mut suffix = 2usize;
+        while used.contains(&candidate) {
+            candidate = format!("{base}_{suffix}");
+            suffix += 1;
+        }
+        used.insert(candidate.clone());
+        out.push(candidate);
+    }
+
+    out
 }
 
 fn auto_cast_temporal_columns(df: DataFrame) -> Result<DataFrame> {
