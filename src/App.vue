@@ -10,15 +10,16 @@
 //   │        │                                │
 //   └────────┴────────────────────────────────┘
 //
-// 侧边栏菜单项对应四个主视图：
+// 侧边栏菜单项：
 //   1. 数据加载与清洗  → /load-clean
-//   2. 图表分析        → /chart-analysis
-//   3. 多维透视分析    → /pivot-analysis
-//   4. 甘特图分析      → /gantt-analysis
+//   2. 多维透视分析    → /pivot-analysis
+//   3. 数据表合并      → /merge-analysis
+//   4. 图表分析        → /chart-analysis
+//   5. 甘特图分析      → /gantt-analysis
 
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Download, DataLine, Grid, Calendar } from '@element-plus/icons-vue'
+import { Download, DataLine, Grid, Calendar, Link } from '@element-plus/icons-vue'
 import appLogo from './assets/app-logo.png'
 
 const router = useRouter()
@@ -86,33 +87,45 @@ function toggleSidebar() {
         <span v-show="!sidebarCollapsed" class="logo-text">BI 分析工具</span>
       </div>
 
-      <el-menu
-        :default-active="activeMenu"
-        :collapse="sidebarCollapsed"
-        :collapse-transition="false"
-        background-color="var(--el-bg-color-overlay)"
-        text-color="var(--el-text-color-primary)"
-        active-text-color="var(--el-color-primary)"
-        class="sidebar-menu"
-        @select="handleMenuSelect"
-      >
+      <el-button class="sidebar-toggle-btn" text @click="toggleSidebar">
+        {{ sidebarCollapsed ? '›' : '‹' }}
+      </el-button>
+
+      <el-menu :default-active="activeMenu" :collapse="sidebarCollapsed" :collapse-transition="false"
+        background-color="var(--el-bg-color-overlay)" text-color="var(--el-text-color-primary)"
+        active-text-color="var(--el-color-primary)" class="sidebar-menu" @select="handleMenuSelect">
         <el-menu-item index="load-clean">
-          <el-icon><Download /></el-icon>
+          <el-icon>
+            <Download />
+          </el-icon>
           <template #title>数据加载与清洗</template>
         </el-menu-item>
 
-        <el-menu-item index="chart-analysis">
-          <el-icon><DataLine /></el-icon>
-          <template #title>图表分析</template>
-        </el-menu-item>
-
         <el-menu-item index="pivot-analysis">
-          <el-icon><Grid /></el-icon>
+          <el-icon>
+            <Grid />
+          </el-icon>
           <template #title>多维透视分析</template>
         </el-menu-item>
 
+        <el-menu-item index="merge-analysis">
+          <el-icon>
+            <Link />
+          </el-icon>
+          <template #title>数据表合并</template>
+        </el-menu-item>
+
+        <el-menu-item index="chart-analysis">
+          <el-icon>
+            <DataLine />
+          </el-icon>
+          <template #title>图表分析</template>
+        </el-menu-item>
+
         <el-menu-item index="gantt-analysis">
-          <el-icon><Calendar /></el-icon>
+          <el-icon>
+            <Calendar />
+          </el-icon>
           <template #title>甘特图分析</template>
         </el-menu-item>
       </el-menu>
@@ -127,21 +140,13 @@ function toggleSidebar() {
       <!-- 顶部标题栏 Header -->
       <el-header class="app-header" height="44px">
         <div class="header-main">
-          <el-button class="collapse-btn" text @click="toggleSidebar">
-            {{ sidebarCollapsed ? '›' : '‹' }}
-          </el-button>
           <div class="header-title">
             {{ route.meta?.title ?? 'BI 分析工具' }}
           </div>
         </div>
         <div class="header-actions">
           <!-- 暗色/亮色模式切换 -->
-          <el-switch
-            v-model="isDark"
-            active-text="🌙"
-            inactive-text="☀️"
-            @change="toggleDark"
-          />
+          <el-switch v-model="isDark" active-text="🌙" inactive-text="☀️" @change="toggleDark" />
         </div>
       </el-header>
 
@@ -160,10 +165,33 @@ function toggleSidebar() {
 }
 
 .sidebar {
+  position: relative;
+  overflow: visible;
   border-right: 1px solid var(--el-border-color);
   display: flex;
   flex-direction: column;
   transition: width 0.2s ease;
+}
+
+.sidebar-toggle-btn {
+  position: absolute;
+  top: 8px;
+  right: -14px;
+  z-index: 20;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid var(--el-border-color);
+  background: var(--el-bg-color-overlay);
+  color: var(--el-text-color-primary);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.sidebar-toggle-btn:hover {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary-light-5);
 }
 
 .sidebar-logo {
@@ -227,13 +255,7 @@ function toggleSidebar() {
 .header-main {
   display: flex;
   align-items: center;
-  gap: 12px;
   min-width: 0;
-}
-
-.collapse-btn {
-  font-size: 24px;
-  padding: 4px 8px;
 }
 
 .header-title {

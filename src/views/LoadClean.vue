@@ -19,16 +19,19 @@
 
 import { shallowRef, ref, computed, watch, onMounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
+import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { ElMessage } from 'element-plus'
 import { useDataStore } from '../stores/dataStore'
 import type { ChartPayload, DatasetMeta } from '../utils/chartAdapter'
+import { useResize } from '../composables/useResize'
+import { usePathUpload } from '../composables/usePathUpload'
 
 const dataStore = useDataStore()
+const upload = usePathUpload()
 
 // ─── 状态 ─────────────────────────────────────────────────────────────────────
 
-const filePath = ref('')
+const filePaths = ref<string[]>([])
 const skipHead = ref(0)
 const skipTail = ref(0)
 const headerRow = ref(-1)
@@ -77,8 +80,8 @@ const typeTarget = ref<'int' | 'float' | 'str' | 'datetime' | 'date'>('str')
 const cleanedPayload = shallowRef<ChartPayload | null>(null)
 const cleanLoading = ref(false)
 const configCollapsed = ref(false)
-const configSpan = computed(() => (configCollapsed.value ? 1 : 6))
-const contentSpan = computed(() => (configCollapsed.value ? 23 : 18))
+
+const { configWidth, startResize } = useResize(320, 640)
 const activeCleanSections = ref<string[]>([
   'columnFilter',
   'rowFilter',
@@ -116,29 +119,59 @@ const previewRows = computed(
   () => (cleanedPayload.value ?? dataStore.payload)?.rows ?? []
 )
 
-// ─── 文件选择 ────────────────────────────────────────────────────────────────
+const previewDatasetName = computed(() => {
+  const activeId = dataStore.activeDatasetId
+  const fallbackId = selectedDatasetId.value
+  const targetId = activeId || fallbackId
+  if (targetId) {
+    const hit = dataStore.datasets.find((d) => d.id === targetId)
+    if (hit?.name) return hit.name
+  }
+  if (filePaths.value.length > 0) {
+    const first = filePaths.value[0]
+    return first.split('/').pop() || first
+  }
+  return '数据预览'
+})
+
+const previewHeaderTitle = computed(() => {
+  const totalRows = (cleanedPayload.value ?? dataStore.payload)?.total_rows ?? previewRows.value.length
+  return `${previewDatasetName.value} · 预览 ${previewRows.value.length}/${totalRows} 行${cleanedPayload.value ? ' — 已清洗' : ''}`
+})
+
+function normalizeInputPaths(paths: string[]): string[] {
+  return Array.from(new Set(paths.map((p) => p.trim()).filter(Boolean)))
+}
+
+async function onDropZoneDrop(e: DragEvent) {
+  const droppedPaths = upload.onDrop(e)
+  if (droppedPaths.length === 0) {
+    ElMessage.warning('未识别到可加载的文件/文件夹路径，请点击拖拽框选择')
+    return
+  }
+  await loadFiles(droppedPaths)
+}
 
 async function selectFile() {
   try {
-    const selected = await openDialog({
-      multiple: false,
-      filters: [{ name: '数据文件', extensions: ['csv', 'xlsx', 'xls', 'xlsm'] }],
-    })
-    if (selected && typeof selected === 'string') {
-      filePath.value = selected
-    }
+    const selectedPaths = await upload.pickByClick()
+    if (selectedPaths.length === 0) return
+    await loadFiles(selectedPaths)
   } catch (e: any) {
     ElMessage.error(`文件选择失败: ${String(e)}`)
   }
 }
 
-// ─── 加载文件 ────────────────────────────────────────────────────────────────
+// ─── 加载文件（单文件 / 多文件） ─────────────────────────────────────────────
 
-async function loadFile() {
-  if (!filePath.value) {
-    ElMessage.warning('请先选择文件')
+async function loadFiles(inputPaths?: string[]) {
+  const candidates = normalizeInputPaths(inputPaths ?? filePaths.value)
+  if (candidates.length === 0) {
+    ElMessage.warning('请先选择文件或文件夹')
     return
   }
+
+  filePaths.value = candidates
   loading.value = true
   cleanedPayload.value = null
   loadNotices.value = []
@@ -148,8 +181,8 @@ async function loadFile() {
     console.log('📥 开始 Tauri IPC 调用...')
 
     const t1 = performance.now()
-    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('load_file', {
-      path: filePath.value,
+    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('load_paths_as_datasets', {
+      paths: candidates,
       skipHead: skipHead.value,
       skipTail: skipTail.value,
       headerRow: headerRow.value,
@@ -180,7 +213,8 @@ async function loadFile() {
       frCols.value = []
       typeCols.value = []
       console.timeEnd(perfLabel)
-      ElMessage.success(`✅ 数据加载成功，共 ${result.data.total_rows} 行（预览 ${result.data.rows.length} 行）`)
+      const filesLabel = candidates.length > 1 ? `${candidates.length} 个路径` : '1 个路径'
+      ElMessage.success(`✅ 数据加载成功（${filesLabel}），共 ${result.data.total_rows} 行（预览 ${result.data.rows.length} 行）`)
       if (loadNotices.value.length > 0) {
         ElMessage.warning(`检测到 ${loadNotices.value.length} 项需手工处理，详情见信息栏`)
       }
@@ -254,6 +288,38 @@ async function saveCurrentAsDataset() {
       dataStore.setActiveDatasetId(result.data.id)
     } else {
       ElMessage.error(result.error ?? '保存失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  }
+}
+
+async function deleteSelectedDataset() {
+  if (!selectedDatasetId.value) {
+    ElMessage.warning('请先选择要删除的数据集')
+    return
+  }
+  try {
+    const result: { ok: boolean; data?: DatasetMeta[]; error?: string } = await invoke('delete_datasets', {
+      datasetIds: [selectedDatasetId.value],
+    })
+    if (result.ok && result.data) {
+      dataStore.setDatasets(result.data)
+      const remainingIds = result.data.map((d) => d.id)
+      if (!remainingIds.includes(selectedDatasetId.value)) {
+        selectedDatasetId.value = result.data[0]?.id ?? ''
+        // 若活跃数据集被删，同步 store
+        if (!remainingIds.includes(dataStore.activeDatasetId)) {
+          if (result.data.length > 0) {
+            dataStore.setActiveDatasetId(result.data[0].id)
+          } else {
+            dataStore.clear()
+          }
+        }
+      }
+      ElMessage.success('已删除数据集')
+    } else {
+      ElMessage.error(result.error ?? '删除失败')
     }
   } catch (e: any) {
     ElMessage.error(String(e))
@@ -482,245 +548,249 @@ async function exportFile(format: 'csv' | 'xlsx') {
 
 <template>
   <div class="load-clean-view">
-    <el-row :gutter="24" style="height: 100%;">
+    <div class="layout-row">
       <!-- 左侧：加载 + 清洗参数面板 -->
-      <el-col :span="configSpan" class="config-col">
+      <div class="config-col"
+        :style="configCollapsed ? { width: '28px', minWidth: '28px' } : { width: configWidth + 'px', minWidth: configWidth + 'px' }">
         <div v-if="!configCollapsed" class="config-scroll">
-        <el-card class="panel-card config-unified-card" shadow="never">
-          <template #header>
-            <div class="panel-header">
-              <span>数据处理</span>
-              <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
+          <el-card class="panel-card config-unified-card" shadow="never">
+            <template #header>
+              <div class="panel-header">
+                <span>数据处理</span>
+                <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
+              </div>
+            </template>
+
+            <!-- ① 数据加载 -->
+            <div class="section-title-row">
+              <span class="section-label">① 数据加载</span>
             </div>
-          </template>
+            <el-form class="compact-form" label-width="72px" label-position="left" size="small">
+              <el-form-item label="拖拽导入">
+                <div class="drop-zone" :class="{ 'is-drag-over': upload.dragOver, 'is-loading': loading }"
+                  @click="selectFile" @dragenter.prevent="upload.onDragEnter" @dragover.prevent="upload.onDragEnter"
+                  @dragleave.prevent="upload.onDragLeave" @drop.prevent="onDropZoneDrop">
+                  <div class="drop-zone-title">拖拽 CSV/Excel 文件或文件夹到此处</div>
+                  <div class="drop-zone-sub">或点击这里选择文件/文件夹，按文件逐个入库并预览首文件</div>
+                  <div v-if="filePaths.length" class="drop-zone-path">
+                    已选 {{ filePaths.length }} 个路径：{{ filePaths[0] }}<span v-if="filePaths.length > 1"> 等</span>
+                  </div>
+                </div>
+              </el-form-item>
+              <el-form-item label="跳过开头行">
+                <el-input-number v-model="skipHead" :min="0" :max="9999" />
+              </el-form-item>
+              <el-form-item label="跳过末尾行">
+                <el-input-number v-model="skipTail" :min="0" :max="9999" />
+              </el-form-item>
+              <el-form-item label="表头行索引">
+                <el-input-number v-model="headerRow" :min="-1" :max="9999" />
+                <el-text class="hint" size="small">-1 = 首行为表头</el-text>
+              </el-form-item>
+              <el-form-item label="锁定表头行">
+                <el-checkbox v-model="lockHeaderRow" :disabled="headerRow < 0">
+                  锁定后，跳过开头行从表头下一行开始计算
+                </el-checkbox>
+              </el-form-item>
 
-          <!-- ① 数据加载 -->
-          <div class="section-title-row">
-            <span class="section-label">① 数据加载</span>
-          </div>
-          <el-form class="compact-form" label-width="72px" label-position="left" size="small">
-            <el-form-item label="选择文件">
-              <el-input v-model="filePath" placeholder="点击右侧按钮选择文件" readonly>
-                <template #append>
-                  <el-button @click="selectFile">浏览…</el-button>
-                </template>
-              </el-input>
-            </el-form-item>
-            <el-form-item label="跳过开头行">
-              <el-input-number v-model="skipHead" :min="0" :max="9999" />
-            </el-form-item>
-            <el-form-item label="跳过末尾行">
-              <el-input-number v-model="skipTail" :min="0" :max="9999" />
-            </el-form-item>
-            <el-form-item label="表头行索引">
-              <el-input-number v-model="headerRow" :min="-1" :max="9999" />
-              <el-text class="hint" size="small">-1 = 首行为表头</el-text>
-            </el-form-item>
-            <el-form-item label="锁定表头行">
-              <el-checkbox v-model="lockHeaderRow" :disabled="headerRow < 0">
-                锁定后，跳过开头行从表头下一行开始计算
-              </el-checkbox>
-            </el-form-item>
-            <el-form-item>
-              <el-button class="action-btn load-btn" type="primary" :loading="loading" @click="loadFile">
-                加载数据
+              <el-divider class="dataset-block-divider" />
+
+              <el-form-item label="数据列表">
+                <el-select v-model="selectedDatasetId" placeholder="选择数据集" clearable>
+                  <el-option v-for="d in dataStore.datasets" :key="d.id"
+                    :label="`${d.name} (${d.total_rows}x${d.total_cols})`" :value="d.id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <div class="dataset-row-actions">
+                  <el-button class="action-btn" @click="refreshDatasetList">刷新</el-button>
+                  <el-button class="action-btn" type="primary" @click="switchDataset">切换</el-button>
+                  <el-button class="action-btn" type="danger" :disabled="!selectedDatasetId"
+                    @click="deleteSelectedDataset">删除</el-button>
+                </div>
+              </el-form-item>
+              <el-form-item label="子数据名">
+                <el-input v-model="childDatasetName" placeholder="可选，留空自动命名" />
+              </el-form-item>
+              <el-form-item class="single-action">
+                <el-button class="action-btn" type="success" @click="saveCurrentAsDataset">保存当前到列表</el-button>
+              </el-form-item>
+            </el-form>
+
+            <!-- ② 数据清洗 -->
+            <el-divider class="section-divider" />
+            <div class="section-title-row">
+              <span class="section-label">② 数据清洗</span>
+              <el-button text class="toggle-all-btn"
+                @click="activeCleanSections = activeCleanSections.length ? [] : ['columnFilter', 'rowFilter', 'fillna', 'dedup', 'trim', 'findReplace', 'typeCast']">
+                {{ activeCleanSections.length ? '全部折叠' : '全部展开' }}
               </el-button>
-            </el-form-item>
+            </div>
+            <el-form class="compact-form" label-width="72px" label-position="left" size="small"
+              :disabled="!dataStore.hasData">
+              <el-collapse v-model="activeCleanSections" class="clean-collapse">
+                <el-collapse-item title="去除列" name="columnFilter">
+                  <el-form-item label="去除列">
+                    <el-select v-model="filterCols" multiple placeholder="留空=不去除" clearable>
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item class="section-actions">
+                    <el-button class="action-btn" type="primary" :loading="cleanLoading"
+                      @click="applySectionClean('columnFilter')">应用当前项</el-button>
+                    <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
+                  </el-form-item>
+                </el-collapse-item>
 
-            <el-form-item label="数据列表">
-              <el-select v-model="selectedDatasetId" placeholder="选择数据集" clearable>
-                <el-option
-                  v-for="d in dataStore.datasets"
-                  :key="d.id"
-                  :label="`${d.name} (${d.total_rows}x${d.total_cols})`"
-                  :value="d.id"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item>
-              <div class="dataset-row-actions">
-                <el-button class="action-btn" @click="refreshDatasetList">刷新</el-button>
-                <el-button class="action-btn" type="primary" @click="switchDataset">切换</el-button>
-              </div>
-            </el-form-item>
-            <el-form-item label="子数据名">
-              <el-input v-model="childDatasetName" placeholder="可选，留空自动命名" />
-            </el-form-item>
-            <el-form-item>
-              <el-button class="action-btn" type="success" @click="saveCurrentAsDataset">保存当前到列表</el-button>
-            </el-form-item>
-          </el-form>
+                <el-collapse-item title="行数据条件过滤" name="rowFilter">
+                  <el-form-item label="目标列">
+                    <el-select v-model="rowFilterCol" placeholder="选择列" clearable>
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="操作符">
+                    <el-select v-model="rowFilterOp">
+                      <el-option v-for="op in rowFilterOpOptions" :key="op.value" :label="op.label" :value="op.value" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="条件值">
+                    <el-input v-model="rowFilterVal" :disabled="!rowFilterNeedsValue(rowFilterOp)"
+                      placeholder="输入过滤值" />
+                  </el-form-item>
+                  <el-form-item class="section-actions">
+                    <el-button class="action-btn" type="primary" :loading="cleanLoading"
+                      @click="applySectionClean('rowFilter')">应用当前项</el-button>
+                    <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
+                  </el-form-item>
+                </el-collapse-item>
 
-          <!-- ② 数据清洗 -->
-          <el-divider class="section-divider" />
-          <div class="section-title-row">
-            <span class="section-label">② 数据清洗</span>
-            <el-button text class="toggle-all-btn" @click="activeCleanSections = activeCleanSections.length ? [] : ['columnFilter', 'rowFilter', 'fillna', 'dedup', 'trim', 'findReplace', 'typeCast']">
-              {{ activeCleanSections.length ? '全部折叠' : '全部展开' }}
-            </el-button>
-          </div>
-          <el-form class="compact-form" label-width="72px" label-position="left" size="small" :disabled="!dataStore.hasData">
-            <el-collapse v-model="activeCleanSections" class="clean-collapse">
-              <el-collapse-item title="去除列" name="columnFilter">
-                <el-form-item label="去除列">
-                  <el-select v-model="filterCols" multiple placeholder="留空=不去除" clearable>
-                    <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item class="section-actions">
-                  <el-button class="action-btn" type="primary" :loading="cleanLoading"
-                    @click="applySectionClean('columnFilter')">应用当前项</el-button>
-                  <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
-                </el-form-item>
-              </el-collapse-item>
+                <el-collapse-item title="填充缺失值" name="fillna">
+                  <el-form-item label="目标列">
+                    <el-select v-model="fillnaCol" placeholder="选择列" clearable>
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="填充值">
+                    <el-input v-model="fillnaVal" placeholder="输入填充值" />
+                  </el-form-item>
+                  <el-form-item class="section-actions">
+                    <el-button class="action-btn" type="primary" :loading="cleanLoading"
+                      @click="applySectionClean('fillna')">应用当前项</el-button>
+                    <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
+                  </el-form-item>
+                </el-collapse-item>
 
-              <el-collapse-item title="行数据条件过滤" name="rowFilter">
-                <el-form-item label="目标列">
-                  <el-select v-model="rowFilterCol" placeholder="选择列" clearable>
-                    <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="操作符">
-                  <el-select v-model="rowFilterOp">
-                    <el-option v-for="op in rowFilterOpOptions" :key="op.value" :label="op.label" :value="op.value" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="条件值">
-                  <el-input v-model="rowFilterVal" :disabled="!rowFilterNeedsValue(rowFilterOp)" placeholder="输入过滤值" />
-                </el-form-item>
-                <el-form-item class="section-actions">
-                  <el-button class="action-btn" type="primary" :loading="cleanLoading"
-                    @click="applySectionClean('rowFilter')">应用当前项</el-button>
-                  <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
-                </el-form-item>
-              </el-collapse-item>
+                <el-collapse-item title="去重" name="dedup">
+                  <el-form-item label="去重列">
+                    <el-select v-model="dedupCols" multiple placeholder="空 = 全列去重" clearable>
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item class="section-actions">
+                    <el-button class="action-btn" type="primary" :loading="cleanLoading"
+                      @click="applySectionClean('dedup')">应用当前项</el-button>
+                    <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
+                  </el-form-item>
+                </el-collapse-item>
 
-              <el-collapse-item title="填充缺失值" name="fillna">
-                <el-form-item label="目标列">
-                  <el-select v-model="fillnaCol" placeholder="选择列" clearable>
-                    <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="填充值">
-                  <el-input v-model="fillnaVal" placeholder="输入填充值" />
-                </el-form-item>
-                <el-form-item class="section-actions">
-                  <el-button class="action-btn" type="primary" :loading="cleanLoading"
-                    @click="applySectionClean('fillna')">应用当前项</el-button>
-                  <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
-                </el-form-item>
-              </el-collapse-item>
+                <el-collapse-item title="去除前后空格" name="trim">
+                  <el-form-item label="目标列">
+                    <el-select v-model="trimCols" multiple placeholder="选择字符串列" clearable>
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item class="section-actions">
+                    <el-button class="action-btn" type="primary" :loading="cleanLoading"
+                      @click="applySectionClean('trim')">应用当前项</el-button>
+                    <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
+                  </el-form-item>
+                </el-collapse-item>
 
-              <el-collapse-item title="去重" name="dedup">
-                <el-form-item label="去重列">
-                  <el-select v-model="dedupCols" multiple placeholder="空 = 全列去重" clearable>
-                    <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item class="section-actions">
-                  <el-button class="action-btn" type="primary" :loading="cleanLoading"
-                    @click="applySectionClean('dedup')">应用当前项</el-button>
-                  <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
-                </el-form-item>
-              </el-collapse-item>
+                <el-collapse-item title="查找替换" name="findReplace">
+                  <el-form-item label="目标列">
+                    <el-select v-model="frCols" multiple placeholder="选择列" clearable>
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="查找">
+                    <el-input v-model="findText" placeholder="查找文本" />
+                  </el-form-item>
+                  <el-form-item label="替换为">
+                    <el-input v-model="replaceText" placeholder="替换文本" />
+                  </el-form-item>
+                  <el-form-item label="正则表达式">
+                    <el-switch v-model="useRegex" />
+                  </el-form-item>
+                  <el-form-item class="section-actions">
+                    <el-button class="action-btn" type="primary" :loading="cleanLoading"
+                      @click="applySectionClean('findReplace')">应用当前项</el-button>
+                    <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
+                  </el-form-item>
+                </el-collapse-item>
 
-              <el-collapse-item title="去除前后空格" name="trim">
-                <el-form-item label="目标列">
-                  <el-select v-model="trimCols" multiple placeholder="选择字符串列" clearable>
-                    <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item class="section-actions">
-                  <el-button class="action-btn" type="primary" :loading="cleanLoading"
-                    @click="applySectionClean('trim')">应用当前项</el-button>
-                  <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
-                </el-form-item>
-              </el-collapse-item>
+                <el-collapse-item title="类型转换" name="typeCast">
+                  <el-form-item label="目标列">
+                    <el-select v-model="typeCols" multiple placeholder="选择一列或多列" clearable>
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="目标类型">
+                    <el-select v-model="typeTarget">
+                      <el-option label="整数 (int)" value="int" />
+                      <el-option label="浮点 (float)" value="float" />
+                      <el-option label="字符串 (str)" value="str" />
+                      <el-option label="日期时间 (datetime)" value="datetime" />
+                      <el-option label="日期 (date)" value="date" />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item class="section-actions">
+                    <el-button class="action-btn" type="primary" :loading="cleanLoading"
+                      @click="applySectionClean('typeCast')">应用当前项</el-button>
+                    <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
+                  </el-form-item>
+                </el-collapse-item>
+              </el-collapse>
 
-              <el-collapse-item title="查找替换" name="findReplace">
-                <el-form-item label="目标列">
-                  <el-select v-model="frCols" multiple placeholder="选择列" clearable>
-                    <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="查找">
-                  <el-input v-model="findText" placeholder="查找文本" />
-                </el-form-item>
-                <el-form-item label="替换为">
-                  <el-input v-model="replaceText" placeholder="替换文本" />
-                </el-form-item>
-                <el-form-item label="正则表达式">
-                  <el-switch v-model="useRegex" />
-                </el-form-item>
-                <el-form-item class="section-actions">
-                  <el-button class="action-btn" type="primary" :loading="cleanLoading"
-                    @click="applySectionClean('findReplace')">应用当前项</el-button>
-                  <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
-                </el-form-item>
-              </el-collapse-item>
-
-              <el-collapse-item title="类型转换" name="typeCast">
-                <el-form-item label="目标列">
-                  <el-select v-model="typeCols" multiple placeholder="选择一列或多列" clearable>
-                    <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="目标类型">
-                  <el-select v-model="typeTarget">
-                    <el-option label="整数 (int)" value="int" />
-                    <el-option label="浮点 (float)" value="float" />
-                    <el-option label="字符串 (str)" value="str" />
-                    <el-option label="日期时间 (datetime)" value="datetime" />
-                    <el-option label="日期 (date)" value="date" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item class="section-actions">
-                  <el-button class="action-btn" type="primary" :loading="cleanLoading"
-                    @click="applySectionClean('typeCast')">应用当前项</el-button>
-                  <el-button class="action-btn" :loading="cleanLoading" @click="undoCleanStep">撤销一步</el-button>
-                </el-form-item>
-              </el-collapse-item>
-            </el-collapse>
-
-            <el-form-item class="clean-actions">
-              <el-button class="action-btn clean-btn-main" type="primary" :loading="cleanLoading" @click="applyClean">
-                应用清洗
-              </el-button>
-              <el-button class="action-btn" type="warning" :loading="cleanLoading" @click="restoreInitialData">
-                恢复初始
-              </el-button>
-            </el-form-item>
-          </el-form>
-
-          <!-- ↓ 导出数据 -->
-          <el-divider class="section-divider" />
-          <div class="section-title-row">
-            <span class="section-label">↓ 导出数据</span>
-          </div>
-          <el-form label-width="0" size="small" :disabled="!dataStore.hasData">
-            <el-form-item class="export-actions">
-              <div class="export-btn-row">
-                <el-button class="action-btn export-btn" size="small" type="success" :loading="saveLoading" :disabled="!dataStore.hasData"
-                  @click="exportFile('csv')">
-                  ⤓ CSV
+              <el-form-item class="clean-actions">
+                <el-button class="action-btn clean-btn-main" type="primary" :loading="cleanLoading" @click="applyClean">
+                  应用清洗
                 </el-button>
-                <el-button class="action-btn export-btn" size="small" type="warning" :loading="saveLoading" :disabled="!dataStore.hasData"
-                  @click="exportFile('xlsx')">
-                  ⤓ Excel
+                <el-button class="action-btn" type="warning" :loading="cleanLoading" @click="restoreInitialData">
+                  恢复初始
                 </el-button>
-              </div>
-            </el-form-item>
-            <el-text type="info" size="small">导出当前全量数据（非预览行）</el-text>
-          </el-form>
-        </el-card>
+              </el-form-item>
+            </el-form>
+
+            <!-- ↓ 导出数据 -->
+            <el-divider class="section-divider" />
+            <div class="section-title-row">
+              <span class="section-label">↓ 导出数据</span>
+            </div>
+            <el-form label-width="0" size="small" :disabled="!dataStore.hasData">
+              <el-form-item class="export-actions">
+                <div class="export-btn-row">
+                  <el-button class="action-btn export-btn" size="small" type="success" :loading="saveLoading"
+                    :disabled="!dataStore.hasData" @click="exportFile('csv')">
+                    ⤓ CSV
+                  </el-button>
+                  <el-button class="action-btn export-btn" size="small" type="warning" :loading="saveLoading"
+                    :disabled="!dataStore.hasData" @click="exportFile('xlsx')">
+                    ⤓ Excel
+                  </el-button>
+                </div>
+              </el-form-item>
+              <el-text type="info" size="small">导出当前全量数据（非预览行）</el-text>
+            </el-form>
+          </el-card>
         </div>
 
         <div v-else class="collapsed-handle" title="展开参数" @click="configCollapsed = false">›</div>
-      </el-col>
+      </div>
+      <div v-if="!configCollapsed" class="resize-handle" @mousedown.prevent="startResize" />
 
       <!-- 右侧：数据预览表格 -->
-      <el-col :span="contentSpan" class="content-col">
-        <el-card class="panel-card preview-card" :header="`数据预览（${previewRows.length} 行${cleanedPayload ? ' — 已清洗' : ''}）`" shadow="never">
+      <div class="content-col">
+        <el-card class="panel-card preview-card" :header="previewHeaderTitle" shadow="never">
           <div v-if="previewRows.length === 0" class="display-empty">
             <el-empty description="暂无数据，请先加载数据" :image-size="80" />
           </div>
@@ -732,12 +802,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 </el-text>
               </div>
               <div v-if="loadNotices.length > 0" class="table-info-notices">
-                <el-alert
-                  type="warning"
-                  show-icon
-                  :closable="false"
-                  title="以下列未能自动转换为浮点数，请手工处理"
-                >
+                <el-alert type="warning" show-icon :closable="false" title="以下列未能自动转换为浮点数，请手工处理">
                   <template #default>
                     <div class="notice-line" v-for="(msg, idx) in loadNotices" :key="`${idx}-${msg}`">
                       {{ msg }}
@@ -760,8 +825,8 @@ async function exportFile(format: 'csv' | 'xlsx') {
             </el-table>
           </div>
         </el-card>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -836,13 +901,38 @@ async function exportFile(format: 'csv' | 'xlsx') {
   color: var(--el-color-primary);
 }
 
+.layout-row {
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+.resize-handle {
+  width: 5px;
+  min-width: 5px;
+  flex: none;
+  cursor: col-resize;
+  margin: 0 4px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background: var(--el-color-primary-light-5);
+}
+
 .content-col {
+  flex: 1;
+  min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .config-col {
+  flex: none;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -887,6 +977,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
   width: 100%;
   display: flex;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 .notice-line {
@@ -909,6 +1000,10 @@ async function exportFile(format: 'csv' | 'xlsx') {
   color: var(--el-text-color-secondary);
   margin-top: 4px;
   font-size: 11px;
+}
+
+.dataset-block-divider {
+  margin: 6px 0 10px;
 }
 
 .col-header {
@@ -937,6 +1032,50 @@ async function exportFile(format: 'csv' | 'xlsx') {
   margin-left: 0 !important;
 }
 
+.drop-zone {
+  width: 100%;
+  border: 1px dashed var(--el-border-color);
+  background: rgba(64, 158, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.drop-zone:hover {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+}
+
+.drop-zone.is-drag-over {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-8);
+}
+
+.drop-zone.is-loading {
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.drop-zone-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.drop-zone-sub {
+  margin-top: 2px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.drop-zone-path {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+  word-break: break-all;
+}
+
 .export-actions :deep(.el-form-item__content) {
   width: 100%;
 }
@@ -945,40 +1084,45 @@ async function exportFile(format: 'csv' | 'xlsx') {
   width: 100%;
   display: flex;
   flex-wrap: nowrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
 .export-btn {
-  flex: 1 1 0;
-  min-width: 0;
+  width: 72px;
+  flex: none;
   height: 30px;
   font-size: 12px;
   padding: 0 8px;
 }
 
-.load-btn {
-  width: 100%;
+.single-action :deep(.el-form-item__content) {
+  justify-content: flex-end;
 }
 
 .clean-actions :deep(.el-form-item__content) {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
 }
 
 .clean-actions .action-btn {
-  flex: 1 1 110px;
+  width: 88px;
+  flex: none;
 }
 
 .section-actions :deep(.el-form-item__content) {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
 }
 
 .section-actions .action-btn {
-  flex: 1 1 120px;
+  width: 88px;
+  flex: none;
 }
 
 .clean-collapse {
@@ -997,29 +1141,20 @@ async function exportFile(format: 'csv' | 'xlsx') {
 }
 
 .clean-btn-main {
-  flex: 1.5 1 170px;
+  width: 88px;
+  flex: none;
 }
 
 .export-actions :deep(.el-form-item__content) {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
 }
 
 .export-actions .action-btn {
-  flex: 1 1 180px;
-}
-
-@media (max-width: 1280px) {
-
-  .clean-actions .action-btn,
-  .export-actions .action-btn {
-    flex: 1 1 100%;
-  }
-
-  .clean-btn-main {
-    flex: 1 1 100%;
-  }
+  width: 88px;
+  flex: none;
 }
 </style>

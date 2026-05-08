@@ -8,16 +8,15 @@
 //   1. 选择行分组、列分组、值字段、聚合方式
 //   2. 调用 pivot_data 后端命令
 //   3. 渲染透视表（el-table）
-//   4. 可选：将透视结果转为图表（调用 BiChart）
+//   4. 支持逆透视 melt（unpivot）
 
-import { computed, ref, shallowRef } from 'vue'
+import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { ElMessage } from 'element-plus'
 import { useDataStore } from '../stores/dataStore'
-import BiChart from '../components/BiChart.vue'
-import { ECHARTS_THEME_OPTIONS } from '../utils/echartsTheme'
-import type { ChartPayload, DatasetMeta } from '../utils/chartAdapter'
-import type { EChartsOption, BarSeriesOption } from 'echarts'
+import type { ChartPayload } from '../utils/chartAdapter'
+import { useResize } from '../composables/useResize'
+import { useDatasetActions } from '../composables/useDatasetActions'
 
 const dataStore = useDataStore()
 
@@ -27,18 +26,20 @@ const rowCols = ref<string[]>([])
 const colCols = ref<string[]>([])
 const valueCols = ref<string[]>([])
 const aggFunc = ref<'sum' | 'mean' | 'count' | 'min' | 'max'>('sum')
+const meltIdCols = ref<string[]>([])
+const meltValueCols = ref<string[]>([])
+const meltVarName = ref('variable')
+const meltValueName = ref('value')
 
 const loading = ref(false)
 const pivotPayload = ref<ChartPayload | null>(null)
 const configCollapsed = ref(false)
 const childDatasetName = ref('')
+const meltChildDatasetName = ref('')
+const formSections = ref<string[]>(['pivot', 'melt'])
 
-const configSpan = computed(() => (configCollapsed.value ? 1 : 6))
-const contentSpan = computed(() => (configCollapsed.value ? 23 : 18))
-
-// ─── 可选：将透视表渲染为柱状图 ──────────────────────────────────────────────
-const showChart = ref(false)
-const pivotChartOption = shallowRef<EChartsOption | null>(null)
+const { configWidth, startResize } = useResize(320, 600)
+const { loadDatasets } = useDatasetActions()
 
 // ─── 执行透视 ────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,6 @@ async function runPivot() {
 
   loading.value = true
   pivotPayload.value = null
-  pivotChartOption.value = null
   try {
     const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('pivot_data', {
       rows: rowCols.value,
@@ -69,10 +69,6 @@ async function runPivot() {
     })
     if (result.ok && result.data) {
       pivotPayload.value = result.data
-      // 如果开启图表模式，构建 ECharts option
-      if (showChart.value && result.data.rows.length > 0) {
-        buildPivotChart(result.data)
-      }
     } else {
       ElMessage.error(result.error ?? '透视计算失败')
     }
@@ -105,10 +101,7 @@ async function savePivotAsDataset() {
     })
     if (result.ok && result.data) {
       pivotPayload.value = result.data
-      const dsResult: { ok: boolean; data?: DatasetMeta[]; error?: string } = await invoke('list_datasets')
-      if (dsResult.ok && dsResult.data) {
-        dataStore.setDatasets(dsResult.data)
-      }
+      await loadDatasets()
       ElMessage.success('透视子数据已保存到数据列表')
     } else {
       ElMessage.error(result.error ?? '保存透视子数据失败')
@@ -120,165 +113,218 @@ async function savePivotAsDataset() {
   }
 }
 
-// 简单地将透视结果的每个值字段作为 bar 系列
-function buildPivotChart(payload: ChartPayload) {
-  const labelCol = payload.columns[0]?.name ?? ''
-  const numCols = payload.columns.slice(1)
-
-  const series: BarSeriesOption[] = numCols.map((col) => ({
-    name: col.name,
-    type: 'bar' as const,
-    data: payload.rows.map((r) => Number(r[col.name] ?? 0)),
-  }))
-
-  const xData = payload.rows.map((r) => String(r[labelCol] ?? ''))
-  const dataViewHtml = (() => {
-    const esc = (value: unknown) => String(value == null ? '' : value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-
-    const headers = [labelCol, ...numCols.map((c) => c.name)]
-    const body = payload.rows
-      .map((r) => {
-        const row = headers.map((h) => esc(r[h]))
-        return `<tr><td>${row.join('</td><td>')}</td></tr>`
-      })
-      .join('')
-
-    return `<style>.dv-wrap{padding:12px 16px;font-family:sans-serif;font-size:13px;color:#1a1a2e}.dv-table{border-collapse:collapse;width:100%;min-width:640px}.dv-table th{background:#eef3ff;color:#334155;font-weight:600;padding:7px 10px;border:1px solid #cfd8ea;text-align:left;white-space:nowrap}.dv-table td{padding:6px 10px;border:1px solid #d9e2f2;vertical-align:top;background:#ffffff}.dv-table tr:nth-child(even) td{background:#f7faff}</style><div class="dv-wrap"><table class="dv-table"><thead><tr><th>${headers.map((h) => esc(h)).join('</th><th>')}</th></tr></thead><tbody>${body}</tbody></table></div>`
-  })()
-
-  const option: EChartsOption = {
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis' as const },
-    legend: { bottom: 0 },
-    toolbox: {
-      feature: {
-        dataZoom: { title: { zoom: '区域缩放', back: '还原' } },
-        restore: { title: '还原' },
-        dataView: {
-          title: '数据视图',
-          lang: ['数据视图', '关闭', '刷新'],
-          readOnly: true,
-          optionToContent: () => dataViewHtml,
-        },
-        saveAsImage: { title: '保存图片' },
-      },
-    },
-    grid: { left: 60, right: 40, top: 40, bottom: 60, containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: xData,
-      axisLabel: { rotate: 0 },
-    },
-    yAxis: { type: 'value' },
-    dataZoom: [
-      { type: 'inside', xAxisIndex: 0 },
-      { type: 'slider', xAxisIndex: 0, bottom: 10 },
-    ],
-    series,
+async function runMelt() {
+  if (!dataStore.hasData) {
+    ElMessage.warning('请先在"数据加载"页面加载数据')
+    return
   }
 
-  pivotChartOption.value = option
+  loading.value = true
+  pivotPayload.value = null
+  try {
+    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('melt_data', {
+      idVars: meltIdCols.value,
+      valueVars: meltValueCols.value,
+      varName: meltVarName.value.trim() || 'variable',
+      valueName: meltValueName.value.trim() || 'value',
+      saveAsDataset: false,
+    })
+    if (result.ok && result.data) {
+      pivotPayload.value = result.data
+    } else {
+      ElMessage.error(result.error ?? '逆透视失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function saveMeltAsDataset() {
+  if (!dataStore.hasData) {
+    ElMessage.warning('请先加载数据')
+    return
+  }
+
+  loading.value = true
+  try {
+    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('melt_data', {
+      idVars: meltIdCols.value,
+      valueVars: meltValueCols.value,
+      varName: meltVarName.value.trim() || 'variable',
+      valueName: meltValueName.value.trim() || 'value',
+      saveAsDataset: true,
+      datasetName: meltChildDatasetName.value.trim() || `逆透视子数据_${Date.now()}`,
+    })
+    if (result.ok && result.data) {
+      pivotPayload.value = result.data
+      await loadDatasets()
+      ElMessage.success('逆透视子数据已保存到数据列表')
+    } else {
+      ElMessage.error(result.error ?? '保存逆透视子数据失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  } finally {
+    loading.value = false
+  }
+}
+
+function resetPivotConfig() {
+  rowCols.value = []
+  colCols.value = []
+  valueCols.value = []
+  aggFunc.value = 'sum'
+
+  meltIdCols.value = []
+  meltValueCols.value = []
+  meltVarName.value = 'variable'
+  meltValueName.value = 'value'
+
+  childDatasetName.value = ''
+  meltChildDatasetName.value = ''
+  pivotPayload.value = null
+  formSections.value = ['pivot', 'melt']
+
+  ElMessage.success('透视与逆透视参数已重置')
 }
 </script>
 
 <template>
   <div class="pivot-analysis-view">
-    <el-row :gutter="24" style="height: 100%;">
+    <div class="layout-row">
       <!-- 左侧：控制面板 -->
-      <el-col :span="configSpan" class="config-col">
+      <div class="config-col"
+        :style="configCollapsed ? { width: '28px', minWidth: '28px' } : { width: configWidth + 'px', minWidth: configWidth + 'px' }">
         <div v-if="!configCollapsed" class="config-scroll">
-        <el-card class="panel-card" shadow="never">
-          <template #header>
-            <div class="panel-header">
-              <span>透视参数</span>
-              <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
-            </div>
-          </template>
-          <el-form class="compact-form" label-width="70px" label-position="left" size="small" :disabled="!dataStore.hasData">
+          <el-card class="panel-card" shadow="never">
+            <template #header>
+              <div class="panel-header">
+                <span>透视参数</span>
+                <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
+              </div>
+            </template>
+            <el-form class="compact-form" label-width="70px" label-position="left" size="small"
+              :disabled="!dataStore.hasData">
 
-            <el-form-item label="行分组">
-              <el-select v-model="rowCols" multiple placeholder="选择行分组字段" style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
+              <el-collapse v-model="formSections" class="param-collapse">
+                <el-collapse-item name="pivot">
+                  <template #title>
+                    <div class="section-title-row">
+                      <span class="section-label">透视Pivot</span>
+                    </div>
+                  </template>
 
-            <el-form-item label="列分组">
-              <el-select v-model="colCols" multiple placeholder="（可选）" clearable style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
+                  <el-form-item label="行分组">
+                    <el-select v-model="rowCols" multiple placeholder="选择行分组字段" style="width:100%">
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
 
-            <el-form-item label="值字段">
-              <el-select v-model="valueCols" multiple placeholder="选择值字段" style="width:100%">
-                <el-option v-for="c in dataStore.numericColumns" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
+                  <el-form-item label="列分组">
+                    <el-select v-model="colCols" multiple placeholder="（可选）" clearable style="width:100%">
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
 
-            <el-form-item label="聚合方式">
-              <el-radio-group v-model="aggFunc">
-                <el-radio-button value="sum">求和</el-radio-button>
-                <el-radio-button value="mean">均值</el-radio-button>
-                <el-radio-button value="count">计数</el-radio-button>
-                <el-radio-button value="min">最小</el-radio-button>
-                <el-radio-button value="max">最大</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
+                  <el-form-item label="值字段">
+                    <el-select v-model="valueCols" multiple placeholder="选择值字段" style="width:100%">
+                      <el-option v-for="c in dataStore.numericColumns" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
 
-            <el-form-item label="可视化">
-              <el-switch v-model="showChart" active-text="开启图表" />
-            </el-form-item>
+                  <el-form-item label="聚合方式">
+                    <el-radio-group v-model="aggFunc">
+                      <el-radio-button value="sum">求和</el-radio-button>
+                      <el-radio-button value="mean">均值</el-radio-button>
+                      <el-radio-button value="count">计数</el-radio-button>
+                      <el-radio-button value="min">最小</el-radio-button>
+                      <el-radio-button value="max">最大</el-radio-button>
+                    </el-radio-group>
+                  </el-form-item>
 
-            <el-form-item>
-              <el-button type="primary" :loading="loading" @click="runPivot" style="width:100%">
-                执行透视
-              </el-button>
-            </el-form-item>
+                  <el-form-item class="action-row action-row-inline">
+                    <el-button type="primary" :loading="loading" @click="runPivot" style="width:120px">
+                      执行透视
+                    </el-button>
+                    <el-button plain type="warning" :disabled="loading" @click="resetPivotConfig" style="width:88px">
+                      重置
+                    </el-button>
+                  </el-form-item>
 
-            <el-form-item label="子数据名">
-              <el-input v-model="childDatasetName" placeholder="可选，留空自动命名" />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="success" :loading="loading" style="width:100%" @click="savePivotAsDataset">
-                保存透视结果到数据列表
-              </el-button>
-            </el-form-item>
+                  <el-form-item label="子数据名">
+                    <el-input v-model="childDatasetName" placeholder="可选，留空自动命名" />
+                  </el-form-item>
+                  <el-form-item class="action-row">
+                    <el-button type="success" :loading="loading" style="width:160px" @click="savePivotAsDataset">
+                      保存透视结果到数据列表
+                    </el-button>
+                  </el-form-item>
+                </el-collapse-item>
 
-            <el-text v-if="pivotPayload" size="small" type="info" style="display:block; margin-top:8px">
-              透视结果：{{ pivotPayload.total_rows }} 行 × {{ pivotPayload.columns.length }} 列
-            </el-text>
-          </el-form>
-        </el-card>
+                <el-collapse-item name="melt">
+                  <template #title>
+                    <div class="section-title-row">
+                      <span class="section-label">逆透视 Melt</span>
+                    </div>
+                  </template>
+
+                  <el-form-item label="标识列">
+                    <el-select v-model="meltIdCols" multiple clearable placeholder="可选：作为 id 维度保留" style="width:100%">
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
+
+                  <el-form-item label="值列">
+                    <el-select v-model="meltValueCols" multiple clearable placeholder="为空时默认选择非标识列" style="width:100%">
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                    </el-select>
+                  </el-form-item>
+
+                  <el-form-item label="变量列名">
+                    <el-input v-model="meltVarName" placeholder="默认 variable" />
+                  </el-form-item>
+
+                  <el-form-item label="数值列名">
+                    <el-input v-model="meltValueName" placeholder="默认 value" />
+                  </el-form-item>
+
+                  <el-form-item class="action-row action-row-inline">
+                    <el-button type="primary" :loading="loading" @click="runMelt" style="width:120px">
+                      执行逆透视
+                    </el-button>
+                    <el-button plain type="warning" :disabled="loading" @click="resetPivotConfig" style="width:88px">
+                      重置
+                    </el-button>
+                  </el-form-item>
+
+                  <el-form-item label="子数据名">
+                    <el-input v-model="meltChildDatasetName" placeholder="可选，留空自动命名" />
+                  </el-form-item>
+                  <el-form-item class="action-row">
+                    <el-button type="success" :loading="loading" style="width:160px" @click="saveMeltAsDataset">
+                      保存逆透视结果到数据列表
+                    </el-button>
+                  </el-form-item>
+                </el-collapse-item>
+              </el-collapse>
+
+              <el-text v-if="pivotPayload" size="small" type="info" style="display:block; margin-top:8px">
+                当前结果：{{ pivotPayload.total_rows }} 行 × {{ pivotPayload.columns.length }} 列
+              </el-text>
+            </el-form>
+          </el-card>
         </div>
 
         <div v-else class="collapsed-handle" title="展开参数" @click="configCollapsed = false">›</div>
-      </el-col>
+      </div>
+      <div v-if="!configCollapsed" class="resize-handle" @mousedown.prevent="startResize" />
 
       <!-- 右侧：结果展示 -->
-      <el-col :span="contentSpan" class="content-col">
-        <!-- 透视图表（可选） -->
-        <el-card v-if="showChart && pivotChartOption" class="panel-card" style="margin-bottom:16px" shadow="never">
-          <template #header>
-            <div class="chart-card-header">
-              <span>透视图表</span>
-              <el-select
-                :model-value="dataStore.currentTheme"
-                size="small"
-                style="width: 130px"
-                placeholder="图表主题"
-                @update:model-value="dataStore.setTheme"
-              >
-                <el-option v-for="opt in ECHARTS_THEME_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </div>
-          </template>
-          <BiChart :option="pivotChartOption" :loading="loading" height="300px" />
-        </el-card>
-
+      <div class="content-col">
         <!-- 透视表格 -->
-        <el-card class="panel-card pivot-table-card" :header="`透视表（${pivotPayload?.total_rows ?? 0} 行）`" shadow="never">
+        <el-card class="panel-card pivot-table-card" :header="`结果表（${pivotPayload?.total_rows ?? 0} 行）`" shadow="never">
           <div v-if="!dataStore.hasData" class="display-empty">
             <el-empty description="暂无数据，请先加载数据" :image-size="80" />
           </div>
@@ -290,8 +336,8 @@ function buildPivotChart(payload: ChartPayload) {
               min-width="120" show-overflow-tooltip />
           </el-table>
         </el-card>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -312,13 +358,6 @@ function buildPivotChart(payload: ChartPayload) {
   gap: 12px;
 }
 
-.chart-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .collapse-trigger {
   font-size: 24px;
   padding: 0;
@@ -330,6 +369,36 @@ function buildPivotChart(payload: ChartPayload) {
   padding: 0;
   line-height: 1;
   height: auto;
+}
+
+.section-title-row {
+  margin: 2px 0 8px;
+}
+
+.section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.param-collapse {
+  border-top: none;
+  border-bottom: none;
+}
+
+.param-collapse :deep(.el-collapse-item__header) {
+  height: 34px;
+  line-height: 34px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.param-collapse :deep(.el-collapse-item__wrap) {
+  border-bottom: none;
+}
+
+.param-collapse :deep(.el-collapse-item__content) {
+  padding-bottom: 4px;
 }
 
 .collapsed-handle {
@@ -348,7 +417,31 @@ function buildPivotChart(payload: ChartPayload) {
   color: var(--el-color-primary);
 }
 
+.layout-row {
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+.resize-handle {
+  width: 5px;
+  min-width: 5px;
+  flex: none;
+  cursor: col-resize;
+  margin: 0 4px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background: var(--el-color-primary-light-5);
+}
+
 .content-col {
+  flex: 1;
+  min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -356,6 +449,7 @@ function buildPivotChart(payload: ChartPayload) {
 }
 
 .config-col {
+  flex: none;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -398,6 +492,18 @@ function buildPivotChart(payload: ChartPayload) {
 
 .compact-form :deep(.el-form-item) {
   margin-bottom: 10px;
+}
+
+.action-row :deep(.el-form-item__content) {
+  justify-content: flex-end;
+}
+
+.action-row-inline :deep(.el-form-item__content) {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
 }
 
 .compact-form :deep(.el-button) {

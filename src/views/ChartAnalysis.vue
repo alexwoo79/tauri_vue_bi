@@ -28,6 +28,7 @@ import BiChart from '../components/BiChart.vue'
 import { ECHARTS_THEME_OPTIONS } from '../utils/echartsTheme'
 import { buildChartOption } from '../utils/chartAdapter'
 import type { ChartPayload, ChartType } from '../utils/chartAdapter'
+import { useResize } from '../composables/useResize'
 
 const dataStore = useDataStore()
 
@@ -49,8 +50,7 @@ const loading = ref(false)
 const chartPayload = ref<ChartPayload | null>(null)
 const configCollapsed = ref(false)
 
-const configSpan = computed(() => (configCollapsed.value ? 1 : 7))
-const contentSpan = computed(() => (configCollapsed.value ? 23 : 17))
+const { configWidth, startResize } = useResize(320, 600)
 
 // ─── 图表类型选项 ────────────────────────────────────────────────────────────
 
@@ -65,6 +65,10 @@ const chartTypeOptions: { label: string; value: ChartType; icon: any }[] = [
   { label: '直方图', value: 'histogram_chart', icon: Histogram },
   { label: '密度图', value: 'density_chart', icon: TrendCharts },
 ]
+
+const activeChartTypeLabel = computed(
+  () => chartTypeOptions.find((opt) => opt.value === chartType.value)?.label ?? ''
+)
 
 const activeYCols = computed(() =>
   yCols.value.slice(0, yAxisCount.value).filter((c) => !!c)
@@ -211,126 +215,125 @@ function swapAxes() {
 
 <template>
   <div class="chart-analysis-view">
-    <el-row :gutter="24" style="height: 100%;">
+    <div class="layout-row">
       <!-- 左侧：控制面板 -->
-      <el-col :span="configSpan" class="config-col">
+      <div class="config-col"
+        :style="configCollapsed ? { width: '28px', minWidth: '28px' } : { width: configWidth + 'px', minWidth: configWidth + 'px' }">
         <div v-if="!configCollapsed" class="config-scroll">
-        <el-card class="panel-card" shadow="never">
-          <template #header>
-            <div class="panel-header">
-              <span>图表参数</span>
-              <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
-            </div>
-          </template>
-          <el-form class="compact-form" label-width="70px" label-position="left" size="small" :disabled="!dataStore.hasData">
-
-            <el-form-item label="图表类型">
-              <div class="chart-type-grid">
-                <el-button
-                  v-for="opt in chartTypeOptions"
-                  :key="opt.value"
-                  class="chart-type-btn"
-                  :type="chartType === opt.value ? 'primary' : 'default'"
-                  @click="chartType = opt.value"
-                >
-                  <el-icon><component :is="opt.icon" /></el-icon>
-                  <span>{{ opt.label }}</span>
-                </el-button>
+          <el-card class="panel-card" shadow="never">
+            <template #header>
+              <div class="panel-header">
+                <span>图表参数</span>
+                <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
               </div>
-            </el-form-item>
+            </template>
+            <el-form class="compact-form" label-width="70px" label-position="left" size="small"
+              :disabled="!dataStore.hasData">
 
-            <el-form-item label="X 轴">
-              <el-select v-model="xCol" style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
+              <el-form-item label="图表类型">
+                <div class="chart-type-grid">
+                  <el-tooltip v-for="opt in chartTypeOptions" :key="opt.value" :content="opt.label" placement="top"
+                    :show-after="120">
+                    <el-button class="chart-type-btn" :class="{ 'is-active': chartType === opt.value }"
+                      @click="chartType = opt.value">
+                      <el-icon>
+                        <component :is="opt.icon" />
+                      </el-icon>
+                    </el-button>
+                  </el-tooltip>
+                </div>
+                <el-text class="chart-type-caption" size="small" type="info">当前：{{ activeChartTypeLabel }}</el-text>
+              </el-form-item>
 
-            <el-form-item label="Y 轴个数">
-              <el-input-number v-model="yAxisCount" :min="1" :max="8" />
-            </el-form-item>
-
-            <el-form-item v-for="idx in yAxisCount" :key="`y-col-${idx}`" :label="`Y${idx}`">
-              <div class="y-col-config-row">
-                <el-select v-model="yCols[idx - 1]" style="width:100%" placeholder="选择数值列">
-                  <el-option v-for="c in dataStore.numericColumns" :key="c" :label="c" :value="c" />
+              <el-form-item label="X 轴">
+                <el-select v-model="xCol" style="width:100%">
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
                 </el-select>
-                <el-radio-group v-model="yAxisSides[idx - 1]" size="small">
-                  <el-radio-button label="left">左轴</el-radio-button>
-                  <el-radio-button label="right">右轴</el-radio-button>
+              </el-form-item>
+
+              <el-form-item label="Y 轴个数">
+                <el-input-number v-model="yAxisCount" :min="1" :max="8" />
+              </el-form-item>
+
+              <el-form-item v-for="idx in yAxisCount" :key="`y-col-${idx}`" :label="`Y${idx}`">
+                <div class="y-col-config-row">
+                  <el-select v-model="yCols[idx - 1]" style="width:100%" placeholder="选择数值列">
+                    <el-option v-for="c in dataStore.numericColumns" :key="c" :label="c" :value="c" />
+                  </el-select>
+                  <el-radio-group v-model="yAxisSides[idx - 1]" size="small">
+                    <el-radio-button label="left">左轴</el-radio-button>
+                    <el-radio-button label="right">右轴</el-radio-button>
+                  </el-radio-group>
+                </div>
+              </el-form-item>
+
+              <el-form-item label="轴向操作">
+                <el-switch v-model="swapXY" active-text="请求时互换 X/Y" />
+                <el-button text type="primary" @click="swapAxes">立即互换 X 与 Y1</el-button>
+              </el-form-item>
+
+              <el-form-item label="颜色分组">
+                <el-select v-model="colorCol" placeholder="（可选）" clearable style="width:100%">
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                </el-select>
+              </el-form-item>
+
+              <el-divider content-position="left">排序</el-divider>
+              <el-form-item label="排序依据">
+                <el-radio-group v-model="sortBy">
+                  <el-radio-button value="none">无</el-radio-button>
+                  <el-radio-button value="x">按 X</el-radio-button>
+                  <el-radio-button value="y">按 Y</el-radio-button>
                 </el-radio-group>
-              </div>
-            </el-form-item>
+              </el-form-item>
+              <el-form-item label="排序方向" v-if="sortBy !== 'none'">
+                <el-radio-group v-model="sortAsc">
+                  <el-radio-button :value="true">升序</el-radio-button>
+                  <el-radio-button :value="false">降序</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
 
-            <el-form-item label="轴向操作">
-              <el-switch v-model="swapXY" active-text="请求时互换 X/Y" />
-              <el-button text type="primary" @click="swapAxes">立即互换 X 与 Y1</el-button>
-            </el-form-item>
+              <el-divider content-position="left">TopN 过滤</el-divider>
+              <el-form-item label="模式">
+                <el-radio-group v-model="topnMode">
+                  <el-radio-button value="off">关闭</el-radio-button>
+                  <el-radio-button value="top">TopN</el-radio-button>
+                  <el-radio-button value="bottom">BottomN</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="N 值" v-if="topnMode !== 'off'">
+                <el-input-number v-model="topnValue" :min="1" :max="10000" />
+              </el-form-item>
 
-            <el-form-item label="颜色分组">
-              <el-select v-model="colorCol" placeholder="（可选）" clearable style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
+              <el-form-item class="action-row">
+                <el-button type="primary" :loading="loading" @click="generateChart" style="width:120px">
+                  生成图表
+                </el-button>
+              </el-form-item>
 
-            <el-divider content-position="left">排序</el-divider>
-            <el-form-item label="排序依据">
-              <el-radio-group v-model="sortBy">
-                <el-radio-button value="none">无</el-radio-button>
-                <el-radio-button value="x">按 X</el-radio-button>
-                <el-radio-button value="y">按 Y</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item label="排序方向" v-if="sortBy !== 'none'">
-              <el-radio-group v-model="sortAsc">
-                <el-radio-button :value="true">升序</el-radio-button>
-                <el-radio-button :value="false">降序</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-
-            <el-divider content-position="left">TopN 过滤</el-divider>
-            <el-form-item label="模式">
-              <el-radio-group v-model="topnMode">
-                <el-radio-button value="off">关闭</el-radio-button>
-                <el-radio-button value="top">TopN</el-radio-button>
-                <el-radio-button value="bottom">BottomN</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item label="N 值" v-if="topnMode !== 'off'">
-              <el-input-number v-model="topnValue" :min="1" :max="10000" />
-            </el-form-item>
-
-            <el-form-item>
-              <el-button type="primary" :loading="loading" @click="generateChart" style="width:100%">
-                生成图表
-              </el-button>
-            </el-form-item>
-
-            <!-- 数据摘要 -->
-            <el-text v-if="chartPayload" size="small" type="info" style="display:block; margin-top:8px">
-              当前数据：{{ chartPayload.total_rows }} 行 × {{ chartPayload.columns.length }} 列
-            </el-text>
-          </el-form>
-        </el-card>
+              <!-- 数据摘要 -->
+              <el-text v-if="chartPayload" size="small" type="info" style="display:block; margin-top:8px">
+                当前数据：{{ chartPayload.total_rows }} 行 × {{ chartPayload.columns.length }} 列
+              </el-text>
+            </el-form>
+          </el-card>
         </div>
 
         <div v-else class="collapsed-handle" title="展开参数" @click="configCollapsed = false">›</div>
-      </el-col>
+      </div>
+      <div v-if="!configCollapsed" class="resize-handle" @mousedown.prevent="startResize" />
 
       <!-- 右侧：图表显示区 -->
-      <el-col :span="contentSpan" class="content-col">
+      <div class="content-col">
         <el-card class="panel-card chart-card" shadow="never">
           <template #header>
             <div class="chart-card-header">
               <span>图表预览</span>
               <div class="chart-card-header-actions">
-                <el-select
-                  :model-value="dataStore.currentTheme"
-                  size="small"
-                  style="width: 130px"
-                  placeholder="图表主题"
-                  @update:model-value="dataStore.setTheme"
-                >
-                  <el-option v-for="opt in ECHARTS_THEME_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+                <el-select :model-value="dataStore.currentTheme" size="small" style="width: 130px" placeholder="图表主题"
+                  @update:model-value="dataStore.setTheme">
+                  <el-option v-for="opt in ECHARTS_THEME_OPTIONS" :key="opt.value" :label="opt.label"
+                    :value="opt.value" />
                 </el-select>
                 <el-tag v-if="chartPayload" size="small">
                   {{ chartType.replace('_chart', '').toUpperCase() }}
@@ -344,8 +347,8 @@ function swapAxes() {
           </div>
           <BiChart v-else :option="chartOption" :loading="loading" height="100%" />
         </el-card>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -394,38 +397,59 @@ function swapAxes() {
 
 .chart-type-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  width: 100%;
+  grid-template-columns: repeat(4, 48px);
+  grid-auto-rows: 34px;
+  gap: 6px;
+  width: max-content;
+  max-width: 100%;
+}
+
+.chart-type-grid :deep(.el-tooltip__trigger) {
+  display: block;
+  width: 48px;
+  height: 34px;
 }
 
 .chart-type-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 10px;
-  font-size: 13px;
-  border-radius: 10px;
+  width: 100%;
+  height: 100% !important;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  border-radius: 0;
+  border: 1px solid var(--el-border-color);
+  background: var(--el-fill-color-blank);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 
 .chart-type-btn :deep(.el-icon) {
   flex: 0 0 auto;
-  font-size: 15px;
+  font-size: 18px;
 }
 
-.chart-type-btn span {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.chart-type-btn:hover {
+  border-color: var(--el-color-primary-light-5);
+  box-shadow: 0 0 0 1px var(--el-color-primary-light-8) inset;
 }
 
-@media (min-width: 1460px) {
-  .chart-type-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+.chart-type-btn.is-active {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
+  background: var(--el-color-primary-light-9);
+}
+
+.chart-type-caption {
+  display: block;
+  margin-top: 6px;
+}
+
+.action-row :deep(.el-form-item__content) {
+  justify-content: flex-end;
 }
 
 .y-col-config-row {
@@ -451,13 +475,38 @@ function swapAxes() {
   color: var(--el-color-primary);
 }
 
+.layout-row {
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+.resize-handle {
+  width: 5px;
+  min-width: 5px;
+  flex: none;
+  cursor: col-resize;
+  margin: 0 4px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background: var(--el-color-primary-light-5);
+}
+
 .content-col {
+  flex: 1;
+  min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .config-col {
+  flex: none;
   height: 100%;
   display: flex;
   flex-direction: column;

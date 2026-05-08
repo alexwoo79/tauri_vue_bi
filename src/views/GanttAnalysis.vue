@@ -17,6 +17,7 @@ import { useDataStore } from '../stores/dataStore'
 import BiGanttChart from '../components/BiGanttChart.vue'
 import { ECHARTS_THEME_OPTIONS } from '../utils/echartsTheme'
 import type { ChartPayload } from '../utils/chartAdapter'
+import { useResize } from '../composables/useResize'
 
 const dataStore = useDataStore()
 
@@ -34,8 +35,7 @@ const loading = ref(false)
 const ganttPayload = ref<ChartPayload | null>(null)
 const configCollapsed = ref(false)
 
-const configSpan = computed(() => (configCollapsed.value ? 1 : 6))
-const contentSpan = computed(() => (configCollapsed.value ? 23 : 18))
+const { configWidth, startResize } = useResize(320, 600)
 
 const showTaskDetails = ref(true)
 const showDuration = ref(true)
@@ -155,138 +155,137 @@ async function loadGanttData() {
 
 <template>
   <div class="gantt-analysis-view">
-    <el-row :gutter="24" style="height: 100%;">
+    <div class="layout-row">
       <!-- 左侧：配置面板 -->
-      <el-col :span="configSpan" class="config-col">
+      <div class="config-col"
+        :style="configCollapsed ? { width: '28px', minWidth: '28px' } : { width: configWidth + 'px', minWidth: configWidth + 'px' }">
         <div v-if="!configCollapsed" class="config-scroll">
-        <el-card class="panel-card" shadow="never">
-          <template #header>
-            <div class="panel-header">
-              <span>甘特图配置</span>
-              <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
-            </div>
-          </template>
-          <el-form class="compact-form" label-width="78px" label-position="left" size="small" :disabled="!dataStore.hasData">
-
-            <el-form-item label="任务名称列">
-              <el-select v-model="taskCol" style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="开始日期列">
-              <el-select v-model="startCol" style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="结束日期列">
-              <el-select v-model="endCol" style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="项目列">
-              <el-select v-model="projectCol" placeholder="（可选）" clearable style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="颜色分组列">
-              <el-select v-model="colorCol" placeholder="（可选）" clearable style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="里程碑列">
-              <el-select v-model="milestoneCol" placeholder="（可选）" clearable style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="详情列">
-              <el-select v-model="detailCol" placeholder="tooltip 显示字段" clearable style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
-            </el-form-item>
-
-            <el-divider content-position="left">显示选项</el-divider>
-
-            <el-form-item label="时间粒度">
-              <el-select v-model="granularity" style="width:100%">
-                <el-option label="日" value="day" />
-                <el-option label="周" value="week" />
-                <el-option label="月" value="month" />
-                <el-option label="季度" value="quarter" />
-                <el-option label="年" value="year" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="按开始排序">
-              <el-switch v-model="sortByStart" />
-            </el-form-item>
-
-            <el-form-item label="自动编号">
-              <el-switch v-model="autoNumber" />
-            </el-form-item>
-
-            <el-form-item label="显示时长">
-              <el-switch v-model="showDuration" />
-            </el-form-item>
-
-            <el-form-item label="显示详情">
-              <el-switch v-model="showTaskDetails" />
-            </el-form-item>
-
-            <el-form-item label="横道标签">
-              <el-select v-model="barLabel" style="width:100%">
-                <el-option label="不显示" value="none" />
-                <el-option label="任务名" value="name" />
-                <el-option label="天数" value="duration" />
-                <el-option label="日期区间" value="dates" />
-                <el-option label="名称+天数" value="nameAndDuration" />
-                <el-option label="详情列" value="detail" />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item>
-              <el-button type="primary" :loading="loading" @click="loadGanttData" style="width:100%">
-                生成甘特图
-              </el-button>
-            </el-form-item>
-
-            <!-- 统计摘要 -->
-            <template v-if="stats">
-              <el-divider content-position="left">统计摘要</el-divider>
-              <el-descriptions :column="1" border size="small">
-                <el-descriptions-item label="总任务数">{{ stats.total }}</el-descriptions-item>
-                <el-descriptions-item label="最早开始">{{ stats.earliestStart }}</el-descriptions-item>
-                <el-descriptions-item label="最晚结束">{{ stats.latestEnd }}</el-descriptions-item>
-                <el-descriptions-item label="项目总用时">{{ stats.totalDurationDays }} 天</el-descriptions-item>
-                <el-descriptions-item label="平均工期">{{ stats.avgDurationDays }} 天</el-descriptions-item>
-              </el-descriptions>
+          <el-card class="panel-card" shadow="never">
+            <template #header>
+              <div class="panel-header">
+                <span>甘特图配置</span>
+                <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
+              </div>
             </template>
-          </el-form>
-        </el-card>
+            <el-form class="compact-form" label-width="78px" label-position="left" size="small"
+              :disabled="!dataStore.hasData">
+
+              <el-form-item label="任务名称列">
+                <el-select v-model="taskCol" style="width:100%">
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="开始日期列">
+                <el-select v-model="startCol" style="width:100%">
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="结束日期列">
+                <el-select v-model="endCol" style="width:100%">
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="项目列">
+                <el-select v-model="projectCol" placeholder="（可选）" clearable style="width:100%">
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="颜色分组列">
+                <el-select v-model="colorCol" placeholder="（可选）" clearable style="width:100%">
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="里程碑列">
+                <el-select v-model="milestoneCol" placeholder="（可选）" clearable style="width:100%">
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="详情列">
+                <el-select v-model="detailCol" placeholder="tooltip 显示字段" clearable style="width:100%">
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                </el-select>
+              </el-form-item>
+
+              <el-divider content-position="left">显示选项</el-divider>
+
+              <el-form-item label="时间粒度">
+                <el-select v-model="granularity" style="width:100%">
+                  <el-option label="日" value="day" />
+                  <el-option label="周" value="week" />
+                  <el-option label="月" value="month" />
+                  <el-option label="季度" value="quarter" />
+                  <el-option label="年" value="year" />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="按开始排序">
+                <el-switch v-model="sortByStart" />
+              </el-form-item>
+
+              <el-form-item label="自动编号">
+                <el-switch v-model="autoNumber" />
+              </el-form-item>
+
+              <el-form-item label="显示时长">
+                <el-switch v-model="showDuration" />
+              </el-form-item>
+
+              <el-form-item label="显示详情">
+                <el-switch v-model="showTaskDetails" />
+              </el-form-item>
+
+              <el-form-item label="横道标签">
+                <el-select v-model="barLabel" style="width:100%">
+                  <el-option label="不显示" value="none" />
+                  <el-option label="任务名" value="name" />
+                  <el-option label="天数" value="duration" />
+                  <el-option label="日期区间" value="dates" />
+                  <el-option label="名称+天数" value="nameAndDuration" />
+                  <el-option label="详情列" value="detail" />
+                </el-select>
+              </el-form-item>
+
+              <el-form-item class="action-row">
+                <el-button type="primary" :loading="loading" @click="loadGanttData" style="width:120px">
+                  生成甘特图
+                </el-button>
+              </el-form-item>
+
+              <!-- 统计摘要 -->
+              <template v-if="stats">
+                <el-divider content-position="left">统计摘要</el-divider>
+                <el-descriptions :column="1" border size="small">
+                  <el-descriptions-item label="总任务数">{{ stats.total }}</el-descriptions-item>
+                  <el-descriptions-item label="最早开始">{{ stats.earliestStart }}</el-descriptions-item>
+                  <el-descriptions-item label="最晚结束">{{ stats.latestEnd }}</el-descriptions-item>
+                  <el-descriptions-item label="项目总用时">{{ stats.totalDurationDays }} 天</el-descriptions-item>
+                  <el-descriptions-item label="平均工期">{{ stats.avgDurationDays }} 天</el-descriptions-item>
+                </el-descriptions>
+              </template>
+            </el-form>
+          </el-card>
         </div>
 
         <div v-else class="collapsed-handle" title="展开参数" @click="configCollapsed = false">›</div>
-      </el-col>
+      </div>
+      <div v-if="!configCollapsed" class="resize-handle" @mousedown.prevent="startResize" />
 
       <!-- 右侧：甘特图 -->
-      <el-col :span="contentSpan" class="content-col">
+      <div class="content-col">
         <el-card class="panel-card gantt-card" shadow="never">
           <template #header>
             <div class="chart-card-header">
               <span>甘特图（横道图）</span>
-              <el-select
-                :model-value="dataStore.currentTheme"
-                size="small"
-                style="width: 130px"
-                placeholder="图表主题"
-                @update:model-value="dataStore.setTheme"
-              >
-                <el-option v-for="opt in ECHARTS_THEME_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
+              <el-select :model-value="dataStore.currentTheme" size="small" style="width: 130px" placeholder="图表主题"
+                @update:model-value="dataStore.setTheme">
+                <el-option v-for="opt in ECHARTS_THEME_OPTIONS" :key="opt.value" :label="opt.label"
+                  :value="opt.value" />
               </el-select>
             </div>
           </template>
@@ -307,8 +306,8 @@ async function loadGanttData() {
               barLabel,
             }" :loading="loading" height="100%" />
         </el-card>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -365,13 +364,38 @@ async function loadGanttData() {
   color: var(--el-color-primary);
 }
 
+.layout-row {
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+.resize-handle {
+  width: 5px;
+  min-width: 5px;
+  flex: none;
+  cursor: col-resize;
+  margin: 0 4px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background: var(--el-color-primary-light-5);
+}
+
 .content-col {
+  flex: 1;
+  min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
 .config-col {
+  flex: none;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -387,6 +411,10 @@ async function loadGanttData() {
 
 .compact-form :deep(.el-form-item) {
   margin-bottom: 10px;
+}
+
+.action-row :deep(.el-form-item__content) {
+  justify-content: flex-end;
 }
 
 .compact-form :deep(.el-button) {
