@@ -497,6 +497,12 @@ const chartOption = computed<EChartsOption | null>(() => {
                 silent: true,
                 tooltip: { show: false },
                 lineStyle: { color: '#ef4444', type: 'dashed', width: 1.6 },
+                endLabel: {
+                    show: true,
+                    formatter: 'Today',
+                    color: '#ef4444',
+                    fontSize: 11,
+                },
                 z: 50,
                 connectNulls: true,
                 markLine: {
@@ -505,7 +511,7 @@ const chartOption = computed<EChartsOption | null>(() => {
                     label: {
                         show: true,
                         formatter: 'Today',
-                        position: 'insideStartTop',
+                        position: 'end',
                         color: '#ef4444',
                         fontSize: 11,
                     },

@@ -18,6 +18,7 @@
 
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { Download, DataLine, Grid, Calendar } from '@element-plus/icons-vue'
 import appLogo from './assets/app-logo.png'
 
 const router = useRouter()
@@ -96,19 +97,23 @@ function toggleSidebar() {
         @select="handleMenuSelect"
       >
         <el-menu-item index="load-clean">
-          <template #title>⬇️ 数据加载与清洗</template>
+          <el-icon><Download /></el-icon>
+          <template #title>数据加载与清洗</template>
         </el-menu-item>
 
         <el-menu-item index="chart-analysis">
-          <template #title>📊 图表分析</template>
+          <el-icon><DataLine /></el-icon>
+          <template #title>图表分析</template>
         </el-menu-item>
 
         <el-menu-item index="pivot-analysis">
-          <template #title>🔢 多维透视分析</template>
+          <el-icon><Grid /></el-icon>
+          <template #title>多维透视分析</template>
         </el-menu-item>
 
         <el-menu-item index="gantt-analysis">
-          <template #title>📅 甘特图分析</template>
+          <el-icon><Calendar /></el-icon>
+          <template #title>甘特图分析</template>
         </el-menu-item>
       </el-menu>
 

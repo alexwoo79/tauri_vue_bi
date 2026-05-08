@@ -5,7 +5,7 @@
 
 import { defineStore } from 'pinia'
 import { shallowRef, ref, computed } from 'vue'
-import type { ColumnInfo, ChartPayload } from '../utils/chartAdapter'
+import type { ColumnInfo, ChartPayload, DatasetMeta } from '../utils/chartAdapter'
 import { normalizeThemeName } from '../utils/echartsTheme'
 
 export const useDataStore = defineStore('data', () => {
@@ -13,6 +13,8 @@ export const useDataStore = defineStore('data', () => {
   // 使用 shallowRef 避免深度响应造成的内存开销
   // 只有顶级对象变化时才触发更新，而不跟踪数组内部的行对象
   const payload = shallowRef<ChartPayload | null>(null)
+  const datasets = ref<DatasetMeta[]>([])
+  const activeDatasetId = ref<string>('')
 
   // 当前 ECharts 主题名称
   const currentTheme = ref<string>('v5')
@@ -87,12 +89,24 @@ export const useDataStore = defineStore('data', () => {
     currentTheme.value = normalizeThemeName(theme)
   }
 
+  function setDatasets(list: DatasetMeta[]) {
+    datasets.value = list
+  }
+
+  function setActiveDatasetId(id: string) {
+    activeDatasetId.value = id
+  }
+
   function clear() {
     payload.value = null
+    datasets.value = []
+    activeDatasetId.value = ''
   }
 
   return {
     payload,
+    datasets,
+    activeDatasetId,
     hasData,
     columns,
     columnNames,
@@ -102,6 +116,8 @@ export const useDataStore = defineStore('data', () => {
     currentTheme,
     setPayload,
     setTheme,
+    setDatasets,
+    setActiveDatasetId,
     clear,
   }
 })

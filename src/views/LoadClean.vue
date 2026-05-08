@@ -17,12 +17,12 @@
 //      g. 类型转换        (type cast)
 //   4. 预览清洗结果 + 导出（通过 Tauri 文件系统）
 
-import { shallowRef, ref, computed, watch } from 'vue'
+import { shallowRef, ref, computed, watch, onMounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { ElMessage } from 'element-plus'
 import { useDataStore } from '../stores/dataStore'
-import type { ChartPayload } from '../utils/chartAdapter'
+import type { ChartPayload, DatasetMeta } from '../utils/chartAdapter'
 
 const dataStore = useDataStore()
 
@@ -34,6 +34,9 @@ const skipTail = ref(0)
 const headerRow = ref(-1)
 const lockHeaderRow = ref(false)
 const loading = ref(false)
+const loadNotices = ref<string[]>([])
+const selectedDatasetId = ref('')
+const childDatasetName = ref('')
 
 watch(headerRow, (v) => {
   if (v < 0) {
@@ -67,15 +70,15 @@ const frCols = ref<string[]>([])
 const findText = ref('')
 const replaceText = ref('')
 const useRegex = ref(false)
-const typeCol = ref('')
+const typeCols = ref<string[]>([])
 const typeTarget = ref<'int' | 'float' | 'str' | 'datetime' | 'date'>('str')
 
 // 清洗后预览数据
 const cleanedPayload = shallowRef<ChartPayload | null>(null)
 const cleanLoading = ref(false)
 const configCollapsed = ref(false)
-const configSpan = computed(() => (configCollapsed.value ? 1 : 8))
-const contentSpan = computed(() => (configCollapsed.value ? 23 : 16))
+const configSpan = computed(() => (configCollapsed.value ? 1 : 6))
+const contentSpan = computed(() => (configCollapsed.value ? 23 : 18))
 const activeCleanSections = ref<string[]>([
   'columnFilter',
   'rowFilter',
@@ -138,6 +141,7 @@ async function loadFile() {
   }
   loading.value = true
   cleanedPayload.value = null
+  loadNotices.value = []
   const perfLabel = '📊 数据加载性能'
   try {
     console.time(perfLabel)
@@ -160,6 +164,8 @@ async function loadFile() {
 
       const t3 = performance.now()
       dataStore.setPayload(result.data)
+      loadNotices.value = result.data.notices ?? []
+      await refreshDatasetList()
       const t4 = performance.now()
       console.log(`⚡ 状态更新: ${(t4 - t3).toFixed(2)}ms (shallowRef 优化)`)
 
@@ -172,9 +178,12 @@ async function loadFile() {
       dedupCols.value = []
       trimCols.value = []
       frCols.value = []
-      typeCol.value = ''
+      typeCols.value = []
       console.timeEnd(perfLabel)
       ElMessage.success(`✅ 数据加载成功，共 ${result.data.total_rows} 行（预览 ${result.data.rows.length} 行）`)
+      if (loadNotices.value.length > 0) {
+        ElMessage.warning(`检测到 ${loadNotices.value.length} 项需手工处理，详情见信息栏`)
+      }
     } else {
       ElMessage.error(result.error ?? '加载失败')
     }
@@ -184,6 +193,76 @@ async function loadFile() {
     loading.value = false
   }
 }
+
+async function refreshDatasetList() {
+  try {
+    const result: { ok: boolean; data?: DatasetMeta[]; error?: string } = await invoke('list_datasets')
+    if (result.ok && result.data) {
+      dataStore.setDatasets(result.data)
+      if (!selectedDatasetId.value && result.data.length > 0) {
+        selectedDatasetId.value = result.data[0].id
+      }
+    } else {
+      ElMessage.warning(result.error ?? '读取数据列表失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  }
+}
+
+async function switchDataset() {
+  if (!selectedDatasetId.value) {
+    ElMessage.warning('请先选择一个数据集')
+    return
+  }
+
+  loading.value = true
+  try {
+    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('switch_dataset', {
+      datasetId: selectedDatasetId.value,
+    })
+    if (result.ok && result.data) {
+      dataStore.setPayload(result.data)
+      dataStore.setActiveDatasetId(selectedDatasetId.value)
+      cleanedPayload.value = null
+      ElMessage.success('已切换当前分析数据')
+    } else {
+      ElMessage.error(result.error ?? '切换失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function saveCurrentAsDataset() {
+  if (!dataStore.hasData) {
+    ElMessage.warning('请先加载数据')
+    return
+  }
+  try {
+    const result: { ok: boolean; data?: DatasetMeta; error?: string } = await invoke('save_current_dataset', {
+      name: childDatasetName.value,
+      source: 'load_clean',
+    })
+    if (result.ok && result.data) {
+      ElMessage.success('已保存到数据列表')
+      childDatasetName.value = ''
+      await refreshDatasetList()
+      selectedDatasetId.value = result.data.id
+      dataStore.setActiveDatasetId(result.data.id)
+    } else {
+      ElMessage.error(result.error ?? '保存失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  }
+}
+
+onMounted(() => {
+  refreshDatasetList()
+})
 
 // ─── 应用清洗 ────────────────────────────────────────────────────────────────
 
@@ -207,7 +286,7 @@ async function applyClean() {
       findText: findText.value,
       replaceText: replaceText.value,
       useRegex: useRegex.value,
-      typeCol: typeCol.value,
+      typeCols: typeCols.value,
       typeTarget: typeTarget.value,
     })
     if (result.ok && result.data) {
@@ -245,7 +324,7 @@ function buildSectionPayload(section: CleanSection) {
     findText: section === 'findReplace' ? findText.value : '',
     replaceText: section === 'findReplace' ? replaceText.value : '',
     useRegex: section === 'findReplace' ? useRegex.value : false,
-    typeCol: section === 'typeCast' ? typeCol.value : '',
+    typeCols: section === 'typeCast' ? typeCols.value : [],
     typeTarget: section === 'typeCast' ? typeTarget.value : 'str',
   }
 }
@@ -272,8 +351,8 @@ async function applySectionClean(section: CleanSection) {
     ElMessage.warning('请输入行条件过滤值')
     return
   }
-  if (section === 'typeCast' && !typeCol.value) {
-    ElMessage.warning('请选择类型转换的目标列')
+  if (section === 'typeCast' && typeCols.value.length === 0) {
+    ElMessage.warning('请至少选择一列进行类型转换')
     return
   }
   if (section === 'findReplace' && !findText.value) {
@@ -320,31 +399,9 @@ async function undoCleanStep() {
   }
 }
 
-async function rollbackClean() {
-  if (!dataStore.hasData) {
-    ElMessage.warning('请先加载数据')
-    return
-  }
-  cleanLoading.value = true
-  try {
-    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('rollback_clean')
-    if (result.ok && result.data) {
-      dataStore.setPayload(result.data)
-      cleanedPayload.value = null
-      ElMessage.success('已回退到加载时原始数据')
-    } else {
-      ElMessage.error(result.error ?? '回退失败')
-    }
-  } catch (e: any) {
-    ElMessage.error(String(e))
-  } finally {
-    cleanLoading.value = false
-  }
-}
-
 // ─── 重置清洗 ────────────────────────────────────────────────────────────────
 
-function resetClean() {
+function resetCleanOptions() {
   cleanedPayload.value = null
   filterCols.value = []
   rowFilterCol.value = ''
@@ -358,8 +415,34 @@ function resetClean() {
   findText.value = ''
   replaceText.value = ''
   useRegex.value = false
-  typeCol.value = ''
+  typeCols.value = []
   typeTarget.value = 'str'
+}
+
+async function restoreInitialData() {
+  // Always reset UI options first so the panel state is deterministic.
+  resetCleanOptions()
+
+  if (!dataStore.hasData) {
+    ElMessage.success('清洗参数已重置')
+    return
+  }
+
+  cleanLoading.value = true
+  try {
+    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('rollback_clean')
+    if (result.ok && result.data) {
+      dataStore.setPayload(result.data)
+      cleanedPayload.value = null
+      ElMessage.success('已恢复到加载时初始数据，并重置清洗参数')
+    } else {
+      ElMessage.error(result.error ?? '恢复失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  } finally {
+    cleanLoading.value = false
+  }
 }
 
 // ─── 导出文件 ────────────────────────────────────────────────────────────────
@@ -415,7 +498,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
           <div class="section-title-row">
             <span class="section-label">① 数据加载</span>
           </div>
-          <el-form label-width="90px" label-position="left" size="small">
+          <el-form class="compact-form" label-width="72px" label-position="left" size="small">
             <el-form-item label="选择文件">
               <el-input v-model="filePath" placeholder="点击右侧按钮选择文件" readonly>
                 <template #append>
@@ -443,6 +526,29 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 加载数据
               </el-button>
             </el-form-item>
+
+            <el-form-item label="数据列表">
+              <el-select v-model="selectedDatasetId" placeholder="选择数据集" clearable>
+                <el-option
+                  v-for="d in dataStore.datasets"
+                  :key="d.id"
+                  :label="`${d.name} (${d.total_rows}x${d.total_cols})`"
+                  :value="d.id"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <div class="dataset-row-actions">
+                <el-button class="action-btn" @click="refreshDatasetList">刷新</el-button>
+                <el-button class="action-btn" type="primary" @click="switchDataset">切换</el-button>
+              </div>
+            </el-form-item>
+            <el-form-item label="子数据名">
+              <el-input v-model="childDatasetName" placeholder="可选，留空自动命名" />
+            </el-form-item>
+            <el-form-item>
+              <el-button class="action-btn" type="success" @click="saveCurrentAsDataset">保存当前到列表</el-button>
+            </el-form-item>
           </el-form>
 
           <!-- ② 数据清洗 -->
@@ -453,7 +559,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
               {{ activeCleanSections.length ? '全部折叠' : '全部展开' }}
             </el-button>
           </div>
-          <el-form label-width="90px" label-position="left" size="small" :disabled="!dataStore.hasData">
+          <el-form class="compact-form" label-width="72px" label-position="left" size="small" :disabled="!dataStore.hasData">
             <el-collapse v-model="activeCleanSections" class="clean-collapse">
               <el-collapse-item title="去除列" name="columnFilter">
                 <el-form-item label="去除列">
@@ -555,7 +661,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
 
               <el-collapse-item title="类型转换" name="typeCast">
                 <el-form-item label="目标列">
-                  <el-select v-model="typeCol" placeholder="选择列" clearable>
+                  <el-select v-model="typeCols" multiple placeholder="选择一列或多列" clearable>
                     <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
                   </el-select>
                 </el-form-item>
@@ -580,11 +686,8 @@ async function exportFile(format: 'csv' | 'xlsx') {
               <el-button class="action-btn clean-btn-main" type="primary" :loading="cleanLoading" @click="applyClean">
                 应用清洗
               </el-button>
-              <el-button class="action-btn" type="warning" :loading="cleanLoading" @click="rollbackClean">
-                回退数据
-              </el-button>
-              <el-button class="action-btn" @click="resetClean">
-                重置
+              <el-button class="action-btn" type="warning" :loading="cleanLoading" @click="restoreInitialData">
+                恢复初始
               </el-button>
             </el-form-item>
           </el-form>
@@ -596,14 +699,16 @@ async function exportFile(format: 'csv' | 'xlsx') {
           </div>
           <el-form label-width="0" size="small" :disabled="!dataStore.hasData">
             <el-form-item class="export-actions">
-              <el-button class="action-btn" type="success" :loading="saveLoading" :disabled="!dataStore.hasData"
-                @click="exportFile('csv')">
-                导出 CSV
-              </el-button>
-              <el-button class="action-btn" type="warning" :loading="saveLoading" :disabled="!dataStore.hasData"
-                @click="exportFile('xlsx')">
-                导出 Excel
-              </el-button>
+              <div class="export-btn-row">
+                <el-button class="action-btn export-btn" size="small" type="success" :loading="saveLoading" :disabled="!dataStore.hasData"
+                  @click="exportFile('csv')">
+                  ⤓ CSV
+                </el-button>
+                <el-button class="action-btn export-btn" size="small" type="warning" :loading="saveLoading" :disabled="!dataStore.hasData"
+                  @click="exportFile('xlsx')">
+                  ⤓ Excel
+                </el-button>
+              </div>
             </el-form-item>
             <el-text type="info" size="small">导出当前全量数据（非预览行）</el-text>
           </el-form>
@@ -621,9 +726,25 @@ async function exportFile(format: 'csv' | 'xlsx') {
           </div>
           <div v-else class="table-wrapper">
             <div class="table-info">
-              <el-text type="info" size="small">
-                {{ previewRows.length }} 行（总计 {{ dataStore.payload?.total_rows }} 行）
-              </el-text>
+              <div class="table-info-main">
+                <el-text type="info" size="small">
+                  {{ previewRows.length }} 行（总计 {{ dataStore.payload?.total_rows }} 行）
+                </el-text>
+              </div>
+              <div v-if="loadNotices.length > 0" class="table-info-notices">
+                <el-alert
+                  type="warning"
+                  show-icon
+                  :closable="false"
+                  title="以下列未能自动转换为浮点数，请手工处理"
+                >
+                  <template #default>
+                    <div class="notice-line" v-for="(msg, idx) in loadNotices" :key="`${idx}-${msg}`">
+                      {{ msg }}
+                    </div>
+                  </template>
+                </el-alert>
+              </div>
             </div>
             <el-table :data="previewRows" border stripe size="small" style="width: 100%"
               :default-sort="{ prop: '', order: null }" height="100%">
@@ -752,6 +873,26 @@ async function exportFile(format: 'csv' | 'xlsx') {
   flex-direction: column;
 }
 
+.table-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compact-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+
+.dataset-row-actions {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+}
+
+.notice-line {
+  line-height: 1.4;
+}
+
 .display-empty {
   flex: 1;
   min-height: 0;
@@ -794,6 +935,25 @@ async function exportFile(format: 'csv' | 'xlsx') {
   font-size: 13px;
   font-weight: 500;
   margin-left: 0 !important;
+}
+
+.export-actions :deep(.el-form-item__content) {
+  width: 100%;
+}
+
+.export-btn-row {
+  width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.export-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 30px;
+  font-size: 12px;
+  padding: 0 8px;
 }
 
 .load-btn {

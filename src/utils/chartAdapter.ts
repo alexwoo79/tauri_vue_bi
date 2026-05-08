@@ -28,6 +28,16 @@ export interface ChartPayload {
   columns: ColumnInfo[]
   rows: Record<string, string | number | null>[]
   total_rows: number
+  notices?: string[]
+}
+
+export interface DatasetMeta {
+  id: string
+  name: string
+  source: string
+  total_rows: number
+  total_cols: number
+  created_at_ms: number
 }
 
 // ─── 图表类型枚举 ────────────────────────────────────────────────────────────
@@ -49,9 +59,14 @@ export interface ChartConfig {
   chartType: ChartType
   xCol: string
   yCol: string
+  yCols?: string[]
+  yAxisSides?: Array<'left' | 'right'>
+  swapAxes?: boolean
   colorCol?: string
   title?: string
 }
+
+type AxisSide = 'left' | 'right'
 
 // ─── 公共基础 option ─────────────────────────────────────────────────────────
 
@@ -148,28 +163,56 @@ export function buildChartOption(
   payload: ChartPayload,
   config: ChartConfig
 ): EChartsOption {
-  const { chartType, xCol, yCol, colorCol, title } = config
+  const { chartType, xCol, yCol, yCols: rawYCols, yAxisSides: rawSides, swapAxes, colorCol, title } = config
   const rows = payload.rows
+  const yCols = (rawYCols && rawYCols.length > 0 ? rawYCols : [yCol]).filter(Boolean)
+  const yAxisSides = yCols.map((_, idx) => rawSides?.[idx] ?? 'left') as AxisSide[]
+  const primaryY = yCols[0] ?? yCol
 
   switch (chartType) {
     case 'pie_chart':
-      return buildPieOption(rows, xCol, yCol, title)
+      return buildPieOption(rows, xCol, primaryY, title)
     case 'scatter_chart':
-      return buildScatterOption(rows, xCol, yCol, colorCol, title)
+      return buildScatterOption(rows, xCol, primaryY, colorCol, title)
     case 'heatmap_chart':
-      return buildHeatmapOption(rows, xCol, yCol, colorCol, title)
+      return buildHeatmapOption(rows, xCol, primaryY, colorCol, title)
     case 'boxplot_chart':
-      return buildBoxplotOption(rows, xCol, yCol, title)
+      return buildBoxplotOption(rows, xCol, primaryY, title)
     case 'area_chart':
-      return buildLineOption(rows, xCol, yCol, colorCol, title, true)
+      return buildLineOption(rows, xCol, yCols, yAxisSides, colorCol, title, true)
     case 'density_chart':
-      return buildLineOption(rows, xCol, yCol, colorCol, title, true, true)
+      return buildLineOption(rows, xCol, yCols, yAxisSides, colorCol, title, true, true)
     case 'line_chart':
-      return buildLineOption(rows, xCol, yCol, colorCol, title, false)
+      return buildLineOption(rows, xCol, yCols, yAxisSides, colorCol, title, false)
     case 'bar_chart':
     case 'histogram_chart':
     default:
-      return buildBarOption(rows, xCol, yCol, colorCol, title)
+      return buildBarOption(rows, xCol, yCols, yAxisSides, colorCol, title, !!swapAxes)
+  }
+}
+
+function buildDualYAxis(yCols: string[], yAxisSides: AxisSide[]) {
+  const hasRight = yCols.some((_, idx) => yAxisSides[idx] === 'right')
+  if (!hasRight) {
+    return {
+      yAxis: { type: 'value' as const },
+      axisIndexFor: (_y: string) => 0,
+    }
+  }
+
+  const leftNames = yCols.filter((_, idx) => yAxisSides[idx] !== 'right')
+  const rightNames = yCols.filter((_, idx) => yAxisSides[idx] === 'right')
+
+  return {
+    yAxis: [
+      { type: 'value' as const, position: 'left' as const, name: leftNames.join(' / ') || '值' },
+      { type: 'value' as const, position: 'right' as const, name: rightNames.join(' / ') || '值' },
+    ],
+    axisIndexFor: (y: string) => {
+      const idx = yCols.indexOf(y)
+      if (idx < 0) return 0
+      return yAxisSides[idx] === 'right' ? 1 : 0
+    },
   }
 }
 
@@ -178,32 +221,67 @@ export function buildChartOption(
 function buildBarOption(
   rows: ChartPayload['rows'],
   xCol: string,
-  yCol: string,
+  yCols: string[],
+  yAxisSides: AxisSide[],
   colorCol?: string,
-  title?: string
+  title?: string,
+  horizontal = false,
 ): EChartsOption {
   const base = baseOption(title)
+  const xValues = Array.from(new Set(rows.map((r) => String(r[xCol] ?? ''))))
+  const { yAxis, axisIndexFor } = buildDualYAxis(yCols, yAxisSides)
 
   if (colorCol) {
-    // 按 colorCol 分组，生成多系列
     const groups = Array.from(new Set(rows.map((r) => String(r[colorCol] ?? ''))))
-    const xValues = Array.from(new Set(rows.map((r) => String(r[xCol] ?? ''))))
-    const series = groups.map((g) => ({
-      name: g,
+    const series = yCols.flatMap((y) => groups.map((g) => ({
+      name: yCols.length > 1 ? `${y} · ${g}` : g,
       type: 'bar' as const,
+      yAxisIndex: axisIndexFor(y),
       data: xValues.map((x) => {
         const row = rows.find((r) => String(r[xCol]) === x && String(r[colorCol]) === g)
-        return row ? (row[yCol] ?? 0) : 0
+        return row ? (row[y] ?? 0) : 0
       }),
-    }))
-    return { ...base, xAxis: { type: 'category', data: xValues }, yAxis: { type: 'value' }, series }
+    })))
+    if (horizontal) {
+      return {
+        ...base,
+        xAxis: { type: 'value' },
+        yAxis: { type: 'category', data: xValues },
+        series,
+      }
+    }
+    return { ...base, xAxis: { type: 'category', data: xValues }, yAxis, series }
+  }
+
+  if (horizontal) {
+    return {
+      ...base,
+      xAxis: { type: 'value' },
+      yAxis: { type: 'category', data: xValues },
+      series: yCols.map((y) => ({
+        name: y,
+        type: 'bar' as const,
+        data: xValues.map((x) => {
+          const row = rows.find((r) => String(r[xCol]) === x)
+          return row ? (row[y] ?? 0) : 0
+        }),
+      })),
+    }
   }
 
   return {
     ...base,
-    xAxis: { type: 'category', data: rows.map((r) => String(r[xCol] ?? '')) },
-    yAxis: { type: 'value' },
-    series: [{ type: 'bar', data: rows.map((r) => r[yCol] ?? 0) }],
+    xAxis: { type: 'category', data: xValues },
+    yAxis,
+    series: yCols.map((y) => ({
+      name: y,
+      type: 'bar' as const,
+      yAxisIndex: axisIndexFor(y),
+      data: xValues.map((x) => {
+        const row = rows.find((r) => String(r[xCol]) === x)
+        return row ? (row[y] ?? 0) : 0
+      }),
+    })),
   }
 }
 
@@ -212,7 +290,8 @@ function buildBarOption(
 function buildLineOption(
   rows: ChartPayload['rows'],
   xCol: string,
-  yCol: string,
+  yCols: string[],
+  yAxisSides: AxisSide[],
   colorCol?: string,
   title?: string,
   showArea = false,
@@ -220,28 +299,40 @@ function buildLineOption(
 ): EChartsOption {
   const base = baseOption(title)
   const areaStyle = showArea ? {} : undefined
+  const xValues = Array.from(new Set(rows.map((r) => String(r[xCol] ?? ''))))
+  const { yAxis, axisIndexFor } = buildDualYAxis(yCols, yAxisSides)
 
   if (colorCol) {
     const groups = Array.from(new Set(rows.map((r) => String(r[colorCol] ?? ''))))
-    const xValues = Array.from(new Set(rows.map((r) => String(r[xCol] ?? ''))))
-    const series = groups.map((g) => ({
-      name: g,
+    const series = yCols.flatMap((y) => groups.map((g) => ({
+      name: yCols.length > 1 ? `${y} · ${g}` : g,
       type: 'line' as const,
       smooth,
       areaStyle,
+      yAxisIndex: axisIndexFor(y),
       data: xValues.map((x) => {
         const row = rows.find((r) => String(r[xCol]) === x && String(r[colorCol]) === g)
-        return row ? (row[yCol] ?? null) : null
+        return row ? (row[y] ?? null) : null
       }),
-    }))
-    return { ...base, xAxis: { type: 'category', data: xValues }, yAxis: { type: 'value' }, series }
+    })))
+    return { ...base, xAxis: { type: 'category', data: xValues }, yAxis, series }
   }
 
   return {
     ...base,
-    xAxis: { type: 'category', data: rows.map((r) => String(r[xCol] ?? '')) },
-    yAxis: { type: 'value' },
-    series: [{ type: 'line', smooth, areaStyle, data: rows.map((r) => r[yCol] ?? 0) }],
+    xAxis: { type: 'category', data: xValues },
+    yAxis,
+    series: yCols.map((y) => ({
+      name: y,
+      type: 'line' as const,
+      smooth,
+      areaStyle,
+      yAxisIndex: axisIndexFor(y),
+      data: xValues.map((x) => {
+        const row = rows.find((r) => String(r[xCol]) === x)
+        return row ? (row[y] ?? 0) : 0
+      }),
+    })),
   }
 }
 

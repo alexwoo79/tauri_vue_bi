@@ -16,7 +16,7 @@ import { ElMessage } from 'element-plus'
 import { useDataStore } from '../stores/dataStore'
 import BiChart from '../components/BiChart.vue'
 import { ECHARTS_THEME_OPTIONS } from '../utils/echartsTheme'
-import type { ChartPayload } from '../utils/chartAdapter'
+import type { ChartPayload, DatasetMeta } from '../utils/chartAdapter'
 import type { EChartsOption, BarSeriesOption } from 'echarts'
 
 const dataStore = useDataStore()
@@ -31,9 +31,10 @@ const aggFunc = ref<'sum' | 'mean' | 'count' | 'min' | 'max'>('sum')
 const loading = ref(false)
 const pivotPayload = ref<ChartPayload | null>(null)
 const configCollapsed = ref(false)
+const childDatasetName = ref('')
 
-const configSpan = computed(() => (configCollapsed.value ? 1 : 7))
-const contentSpan = computed(() => (configCollapsed.value ? 23 : 17))
+const configSpan = computed(() => (configCollapsed.value ? 1 : 6))
+const contentSpan = computed(() => (configCollapsed.value ? 23 : 18))
 
 // ─── 可选：将透视表渲染为柱状图 ──────────────────────────────────────────────
 const showChart = ref(false)
@@ -64,6 +65,7 @@ async function runPivot() {
       columns: colCols.value,
       values: valueCols.value,
       agg: aggFunc.value,
+      saveAsDataset: false,
     })
     if (result.ok && result.data) {
       pivotPayload.value = result.data
@@ -73,6 +75,43 @@ async function runPivot() {
       }
     } else {
       ElMessage.error(result.error ?? '透视计算失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function savePivotAsDataset() {
+  if (!dataStore.hasData) {
+    ElMessage.warning('请先加载数据')
+    return
+  }
+  if (rowCols.value.length === 0 || valueCols.value.length === 0) {
+    ElMessage.warning('请先配置透视参数并执行透视')
+    return
+  }
+
+  loading.value = true
+  try {
+    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('pivot_data', {
+      rows: rowCols.value,
+      columns: colCols.value,
+      values: valueCols.value,
+      agg: aggFunc.value,
+      saveAsDataset: true,
+      datasetName: childDatasetName.value.trim() || `透视子数据_${Date.now()}`,
+    })
+    if (result.ok && result.data) {
+      pivotPayload.value = result.data
+      const dsResult: { ok: boolean; data?: DatasetMeta[]; error?: string } = await invoke('list_datasets')
+      if (dsResult.ok && dsResult.data) {
+        dataStore.setDatasets(dsResult.data)
+      }
+      ElMessage.success('透视子数据已保存到数据列表')
+    } else {
+      ElMessage.error(result.error ?? '保存透视子数据失败')
     }
   } catch (e: any) {
     ElMessage.error(String(e))
@@ -92,16 +131,52 @@ function buildPivotChart(payload: ChartPayload) {
     data: payload.rows.map((r) => Number(r[col.name] ?? 0)),
   }))
 
+  const xData = payload.rows.map((r) => String(r[labelCol] ?? ''))
+  const dataViewHtml = (() => {
+    const esc = (value: unknown) => String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+
+    const headers = [labelCol, ...numCols.map((c) => c.name)]
+    const body = payload.rows
+      .map((r) => {
+        const row = headers.map((h) => esc(r[h]))
+        return `<tr><td>${row.join('</td><td>')}</td></tr>`
+      })
+      .join('')
+
+    return `<style>.dv-wrap{padding:12px 16px;font-family:sans-serif;font-size:13px;color:#1a1a2e}.dv-table{border-collapse:collapse;width:100%;min-width:640px}.dv-table th{background:#eef3ff;color:#334155;font-weight:600;padding:7px 10px;border:1px solid #cfd8ea;text-align:left;white-space:nowrap}.dv-table td{padding:6px 10px;border:1px solid #d9e2f2;vertical-align:top;background:#ffffff}.dv-table tr:nth-child(even) td{background:#f7faff}</style><div class="dv-wrap"><table class="dv-table"><thead><tr><th>${headers.map((h) => esc(h)).join('</th><th>')}</th></tr></thead><tbody>${body}</tbody></table></div>`
+  })()
+
   const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' as const },
     legend: { bottom: 0 },
+    toolbox: {
+      feature: {
+        dataZoom: { title: { zoom: '区域缩放', back: '还原' } },
+        restore: { title: '还原' },
+        dataView: {
+          title: '数据视图',
+          lang: ['数据视图', '关闭', '刷新'],
+          readOnly: true,
+          optionToContent: () => dataViewHtml,
+        },
+        saveAsImage: { title: '保存图片' },
+      },
+    },
+    grid: { left: 60, right: 40, top: 40, bottom: 60, containLabel: true },
     xAxis: {
       type: 'category',
-      data: payload.rows.map((r) => String(r[labelCol] ?? '')),
-      axisLabel: { rotate: 30 },
+      data: xData,
+      axisLabel: { rotate: 0 },
     },
     yAxis: { type: 'value' },
+    dataZoom: [
+      { type: 'inside', xAxisIndex: 0 },
+      { type: 'slider', xAxisIndex: 0, bottom: 10 },
+    ],
     series,
   }
 
@@ -113,15 +188,16 @@ function buildPivotChart(payload: ChartPayload) {
   <div class="pivot-analysis-view">
     <el-row :gutter="24" style="height: 100%;">
       <!-- 左侧：控制面板 -->
-      <el-col :span="configSpan">
-        <el-card v-if="!configCollapsed" class="panel-card" shadow="never">
+      <el-col :span="configSpan" class="config-col">
+        <div v-if="!configCollapsed" class="config-scroll">
+        <el-card class="panel-card" shadow="never">
           <template #header>
             <div class="panel-header">
               <span>透视参数</span>
               <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
             </div>
           </template>
-          <el-form label-width="80px" label-position="left" size="small" :disabled="!dataStore.hasData">
+          <el-form class="compact-form" label-width="70px" label-position="left" size="small" :disabled="!dataStore.hasData">
 
             <el-form-item label="行分组">
               <el-select v-model="rowCols" multiple placeholder="选择行分组字段" style="width:100%">
@@ -161,11 +237,21 @@ function buildPivotChart(payload: ChartPayload) {
               </el-button>
             </el-form-item>
 
+            <el-form-item label="子数据名">
+              <el-input v-model="childDatasetName" placeholder="可选，留空自动命名" />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="success" :loading="loading" style="width:100%" @click="savePivotAsDataset">
+                保存透视结果到数据列表
+              </el-button>
+            </el-form-item>
+
             <el-text v-if="pivotPayload" size="small" type="info" style="display:block; margin-top:8px">
               透视结果：{{ pivotPayload.total_rows }} 行 × {{ pivotPayload.columns.length }} 列
             </el-text>
           </el-form>
         </el-card>
+        </div>
 
         <div v-else class="collapsed-handle" title="展开参数" @click="configCollapsed = false">›</div>
       </el-col>
@@ -269,6 +355,20 @@ function buildPivotChart(payload: ChartPayload) {
   min-height: 0;
 }
 
+.config-col {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.config-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
 .pivot-table-card {
   flex: 1;
   min-height: 0;
@@ -294,5 +394,13 @@ function buildPivotChart(payload: ChartPayload) {
 
 :deep(.el-card__header) {
   padding: 8px 16px;
+}
+
+.compact-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+
+.compact-form :deep(.el-button) {
+  height: 30px;
 }
 </style>

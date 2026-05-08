@@ -15,10 +15,16 @@
 
 pub mod commands;
 
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::Mutex;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
+use polars::io::parquet::read::ParquetReader;
+use polars::io::parquet::write::ParquetWriter;
 use polars::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -34,6 +40,10 @@ pub static GLOBAL_DF: Lazy<Mutex<Option<DataFrame>>> = Lazy::new(|| Mutex::new(N
 pub static ORIGINAL_DF: Lazy<Mutex<Option<DataFrame>>> = Lazy::new(|| Mutex::new(None));
 /// History stack for step-wise clean undo.
 pub static CLEAN_HISTORY: Lazy<Mutex<Vec<DataFrame>>> = Lazy::new(|| Mutex::new(Vec::new()));
+/// In-memory dataset registry for switching between loaded/derived datasets.
+pub static DATASET_REGISTRY: Lazy<Mutex<Vec<DatasetRecord>>> = Lazy::new(|| Mutex::new(Vec::new()));
+/// Currently active dataset id.
+pub static ACTIVE_DATASET_ID: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared data types (used by both lib.rs and commands.rs)
@@ -73,6 +83,207 @@ pub struct ChartPayload {
     pub columns: Vec<ColumnInfo>,
     pub rows: Vec<RowMap>,
     pub total_rows: usize,
+    pub notices: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DatasetMeta {
+    pub id: String,
+    pub name: String,
+    pub source: String,
+    pub total_rows: usize,
+    pub total_cols: usize,
+    pub created_at_ms: u128,
+}
+
+#[derive(Debug, Clone)]
+pub struct DatasetRecord {
+    pub meta: DatasetMeta,
+    pub df: DataFrame,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedDatasetState {
+    active_dataset_id: Option<String>,
+    datasets: Vec<DatasetMeta>,
+}
+
+fn dataset_store_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    Path::new(&home)
+        .join(".tauri_vue_bi")
+        .join("dataset_registry")
+}
+
+fn dataset_state_file() -> PathBuf {
+    dataset_store_dir().join("state.json")
+}
+
+fn dataset_parquet_file(dataset_id: &str) -> PathBuf {
+    dataset_store_dir().join(format!("{dataset_id}.parquet"))
+}
+
+fn dataset_legacy_csv_file(dataset_id: &str) -> PathBuf {
+    dataset_store_dir().join(format!("{dataset_id}.csv"))
+}
+
+fn persist_dataset_registry() -> Result<()> {
+    let dir = dataset_store_dir();
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("create dataset store dir failed: {}", dir.display()))?;
+
+    let active_id = ACTIVE_DATASET_ID.lock().unwrap().clone();
+    let records: Vec<DatasetRecord> = DATASET_REGISTRY.lock().unwrap().clone();
+
+    for rec in &records {
+        let file_path = dataset_parquet_file(rec.meta.id.as_str());
+        let mut f = std::fs::File::create(&file_path)
+            .with_context(|| format!("create dataset file failed: {}", file_path.display()))?;
+        ParquetWriter::new(&mut f)
+            .finish(&mut rec.df.clone())
+            .map_err(|e| anyhow::anyhow!("write dataset parquet failed: {e}"))?;
+    }
+
+    let keep_ids: HashSet<String> = records.iter().map(|r| r.meta.id.clone()).collect();
+    for entry in fs::read_dir(&dir)
+        .with_context(|| format!("read dataset store dir failed: {}", dir.display()))?
+    {
+        let entry = entry.map_err(|e| anyhow::anyhow!("read_dir entry error: {e}"))?;
+        let path = entry.path();
+        let ext = path.extension().and_then(|s| s.to_str());
+        if ext != Some("parquet") && ext != Some("csv") {
+            continue;
+        }
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+        if !keep_ids.contains(stem) {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    let state = PersistedDatasetState {
+        active_dataset_id: active_id,
+        datasets: records.into_iter().map(|r| r.meta).collect(),
+    };
+    let state_file = dataset_state_file();
+    let state_text = serde_json::to_string_pretty(&state)?;
+    fs::write(&state_file, state_text)
+        .with_context(|| format!("write state file failed: {}", state_file.display()))?;
+
+    Ok(())
+}
+
+fn load_persisted_dataset_registry() -> Result<()> {
+    let state_file = dataset_state_file();
+    if !state_file.exists() {
+        return Ok(());
+    }
+
+    let state_text = fs::read_to_string(&state_file)
+        .with_context(|| format!("read state file failed: {}", state_file.display()))?;
+    let state: PersistedDatasetState = serde_json::from_str(&state_text)?;
+
+    let mut records: Vec<DatasetRecord> = Vec::new();
+    let mut migrated_from_csv = false;
+    for mut meta in state.datasets {
+        let parquet_file = dataset_parquet_file(meta.id.as_str());
+        let legacy_csv_file = dataset_legacy_csv_file(meta.id.as_str());
+
+        let df = if parquet_file.exists() {
+            let mut f = std::fs::File::open(&parquet_file)
+                .with_context(|| format!("open dataset parquet failed: {}", parquet_file.display()))?;
+            ParquetReader::new(&mut f)
+                .finish()
+                .map_err(|e| anyhow::anyhow!("read dataset parquet failed: {e}"))?
+        } else if legacy_csv_file.exists() {
+            migrated_from_csv = true;
+            CsvReadOptions::default()
+                .with_has_header(true)
+                .try_into_reader_with_file_path(Some(legacy_csv_file.clone()))
+                .map_err(|e| anyhow::anyhow!("open legacy dataset csv failed: {e}"))?
+                .finish()
+                .map_err(|e| anyhow::anyhow!("read legacy dataset csv failed: {e}"))?
+        } else {
+            continue;
+        };
+
+        meta.total_rows = df.height();
+        meta.total_cols = df.width();
+        records.push(DatasetRecord { meta, df });
+    }
+
+    let restored_active_id = state.active_dataset_id.and_then(|id| {
+        if records.iter().any(|r| r.meta.id == id) {
+            Some(id)
+        } else {
+            None
+        }
+    });
+
+    *DATASET_REGISTRY.lock().unwrap() = records.clone();
+    *ACTIVE_DATASET_ID.lock().unwrap() = restored_active_id.clone();
+
+    let current = if let Some(id) = restored_active_id {
+        records.iter().find(|r| r.meta.id == id).cloned()
+    } else {
+        records.first().cloned()
+    };
+
+    if let Some(rec) = current {
+        *GLOBAL_DF.lock().unwrap() = Some(rec.df.clone());
+        *ORIGINAL_DF.lock().unwrap() = Some(rec.df.clone());
+        *ACTIVE_DATASET_ID.lock().unwrap() = Some(rec.meta.id);
+    }
+
+    if migrated_from_csv {
+        // Rewrite all restored datasets as parquet and clean stale legacy CSV files.
+        persist_dataset_registry()?;
+    }
+
+    Ok(())
+}
+
+fn register_dataset(df: &DataFrame, name: String, source: String) -> DatasetMeta {
+    let created_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let id = format!("ds_{created_at_ms}");
+    let meta = DatasetMeta {
+        id: id.clone(),
+        name,
+        source,
+        total_rows: df.height(),
+        total_cols: df.width(),
+        created_at_ms,
+    };
+
+    {
+        DATASET_REGISTRY.lock().unwrap().push(DatasetRecord {
+            meta: meta.clone(),
+            df: df.clone(),
+        });
+        *ACTIVE_DATASET_ID.lock().unwrap() = Some(id);
+    }
+    if let Err(e) = persist_dataset_registry() {
+        eprintln!("persist dataset registry failed: {e}");
+    }
+    meta
+}
+
+fn sync_active_dataset(df: &DataFrame) {
+    let active_id = ACTIVE_DATASET_ID.lock().unwrap().clone();
+    let Some(id) = active_id else { return; };
+
+    let mut registry = DATASET_REGISTRY.lock().unwrap();
+    if let Some(rec) = registry.iter_mut().find(|r| r.meta.id == id) {
+        rec.df = df.clone();
+        rec.meta.total_rows = df.height();
+        rec.meta.total_cols = df.width();
+    }
+    drop(registry);
+    if let Err(e) = persist_dataset_registry() {
+        eprintln!("persist dataset registry failed: {e}");
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,7 +322,12 @@ pub fn df_to_payload(df: &DataFrame, limit: Option<usize>) -> Result<ChartPayloa
         rows.push(map);
     }
 
-    Ok(ChartPayload { columns, rows, total_rows })
+    Ok(ChartPayload {
+        columns,
+        rows,
+        total_rows,
+        notices: Vec::new(),
+    })
 }
 
 fn infer_payload_dtype(s: &Column) -> String {
@@ -259,14 +475,28 @@ async fn load_file(
     header_locked: bool,
 ) -> ApiResult<ChartPayload> {
     match commands::load_file_impl(&path, skip_head, skip_tail, header_row, header_locked) {
-        Ok(df) => {
+        Ok(output) => {
+            let df = output.df;
             // 只序列化预览行，全量 DataFrame 保存到全局状态
             let payload = df_to_payload(&df, Some(PREVIEW_LIMIT));
             *GLOBAL_DF.lock().unwrap() = Some(df.clone());
-            *ORIGINAL_DF.lock().unwrap() = Some(df);
+            *ORIGINAL_DF.lock().unwrap() = Some(df.clone());
             CLEAN_HISTORY.lock().unwrap().clear();
+            let file_name = std::path::Path::new(&path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("加载数据")
+                .to_string();
+            register_dataset(
+                &df,
+                file_name,
+                "load_file".to_string(),
+            );
             match payload {
-                Ok(p) => ApiResult::success(p),
+                Ok(mut p) => {
+                    p.notices = output.notices;
+                    ApiResult::success(p)
+                }
                 Err(e) => ApiResult::failure(e.to_string()),
             }
         }
@@ -292,7 +522,7 @@ async fn get_dataframe_info(limit: Option<usize>) -> ApiResult<ChartPayload> {
 /// Parameters
 /// ──────────
 /// `x_col`      – X-axis column name
-/// `y_col`      – Y-axis column name (must be numeric)
+/// `y_cols`     – one or more Y-axis column names (numeric recommended)
 /// `color_col`  – optional grouping/colour column
 /// `sort_by`    – "x" | "y" | "none"
 /// `sort_asc`   – true = ascending
@@ -300,7 +530,7 @@ async fn get_dataframe_info(limit: Option<usize>) -> ApiResult<ChartPayload> {
 #[tauri::command]
 async fn fetch_chart_data(
     x_col: String,
-    y_col: String,
+    y_cols: Vec<String>,
     color_col: Option<String>,
     sort_by: String,
     sort_asc: bool,
@@ -310,7 +540,7 @@ async fn fetch_chart_data(
     match commands::fetch_chart_data_impl(
         &df,
         &x_col,
-        &y_col,
+        &y_cols,
         color_col.as_deref(),
         &sort_by,
         sort_asc,
@@ -338,13 +568,26 @@ async fn pivot_data(
     columns: Vec<String>,
     values: Vec<String>,
     agg: String,
+    save_as_dataset: Option<bool>,
+    dataset_name: Option<String>,
 ) -> ApiResult<ChartPayload> {
     let df = take_df!();
     match commands::pivot_data_impl(&df, &rows, &columns, &values, &agg) {
-        Ok(result_df) => match df_to_payload(&result_df, Some(CHART_LIMIT)) {
-            Ok(p) => ApiResult::success(p),
-            Err(e) => ApiResult::failure(e.to_string()),
-        },
+        Ok(result_df) => {
+            if save_as_dataset.unwrap_or(false) {
+                let default_name = format!("透视结果_{}", values.join("_"));
+                register_dataset(
+                    &result_df,
+                    dataset_name.unwrap_or(default_name),
+                    "pivot_data".to_string(),
+                );
+            }
+
+            match df_to_payload(&result_df, Some(CHART_LIMIT)) {
+                Ok(p) => ApiResult::success(p),
+                Err(e) => ApiResult::failure(e.to_string()),
+            }
+        }
         Err(e) => ApiResult::failure(e.to_string()),
     }
 }
@@ -368,7 +611,7 @@ async fn clean_data(
     find_text: String,
     replace_text: String,
     use_regex: bool,
-    type_col: String,
+    type_cols: Vec<String>,
     type_target: String,
 ) -> ApiResult<ChartPayload> {
     let df = take_df!();
@@ -387,13 +630,14 @@ async fn clean_data(
         &find_text,
         &replace_text,
         use_regex,
-        &type_col,
+        &type_cols,
         &type_target,
     ) {
         Ok(result_df) => {
             // Persist cleaned result so the next clean operation continues from
             // the latest state instead of reusing the original loaded DataFrame.
             *GLOBAL_DF.lock().unwrap() = Some(result_df.clone());
+            sync_active_dataset(&result_df);
             match df_to_payload(&result_df, Some(PREVIEW_LIMIT)) {
                 Ok(p) => ApiResult::success(p),
                 Err(e) => ApiResult::failure(e.to_string()),
@@ -419,6 +663,7 @@ async fn undo_clean() -> ApiResult<ChartPayload> {
     };
 
     *GLOBAL_DF.lock().unwrap() = Some(prev.clone());
+    sync_active_dataset(&prev);
     match df_to_payload(&prev, Some(PREVIEW_LIMIT)) {
         Ok(p) => ApiResult::success(p),
         Err(e) => ApiResult::failure(e.to_string()),
@@ -439,6 +684,7 @@ async fn rollback_clean() -> ApiResult<ChartPayload> {
 
     *GLOBAL_DF.lock().unwrap() = Some(original.clone());
     CLEAN_HISTORY.lock().unwrap().clear();
+    sync_active_dataset(&original);
     match df_to_payload(&original, Some(PREVIEW_LIMIT)) {
         Ok(p) => ApiResult::success(p),
         Err(e) => ApiResult::failure(e.to_string()),
@@ -517,12 +763,66 @@ async fn save_file(path: String) -> ApiResult<String> {
     }
 }
 
+#[tauri::command]
+async fn list_datasets() -> ApiResult<Vec<DatasetMeta>> {
+    let mut metas: Vec<DatasetMeta> = DATASET_REGISTRY
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|r| r.meta.clone())
+        .collect();
+    metas.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+    ApiResult::success(metas)
+}
+
+#[tauri::command]
+async fn switch_dataset(dataset_id: String) -> ApiResult<ChartPayload> {
+    let found = DATASET_REGISTRY
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|r| r.meta.id == dataset_id)
+        .cloned();
+
+    let Some(rec) = found else {
+        return ApiResult::failure("Dataset not found");
+    };
+
+    *GLOBAL_DF.lock().unwrap() = Some(rec.df.clone());
+    *ORIGINAL_DF.lock().unwrap() = Some(rec.df.clone());
+    CLEAN_HISTORY.lock().unwrap().clear();
+    *ACTIVE_DATASET_ID.lock().unwrap() = Some(rec.meta.id);
+    if let Err(e) = persist_dataset_registry() {
+        eprintln!("persist dataset registry failed: {e}");
+    }
+
+    match df_to_payload(&rec.df, Some(PREVIEW_LIMIT)) {
+        Ok(p) => ApiResult::success(p),
+        Err(e) => ApiResult::failure(e.to_string()),
+    }
+}
+
+#[tauri::command]
+async fn save_current_dataset(name: String, source: Option<String>) -> ApiResult<DatasetMeta> {
+    let df = take_df!();
+    let meta = register_dataset(
+        &df,
+        if name.trim().is_empty() { "子数据集".to_string() } else { name.trim().to_string() },
+        source.unwrap_or_else(|| "manual_save".to_string()),
+    );
+    ApiResult::success(meta)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tauri app bootstrap
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Err(e) = load_persisted_dataset_registry() {
+        eprintln!("load persisted dataset registry failed: {e}");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -538,6 +838,9 @@ pub fn run() {
             groupby_agg,
             fetch_gantt_data,
             save_file,
+            list_datasets,
+            switch_dataset,
+            save_current_dataset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

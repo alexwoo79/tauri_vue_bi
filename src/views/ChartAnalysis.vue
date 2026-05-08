@@ -15,6 +15,14 @@
 import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { ElMessage } from 'element-plus'
+import {
+  DataAnalysis,
+  TrendCharts,
+  Connection,
+  PieChart,
+  Grid,
+  Histogram,
+} from '@element-plus/icons-vue'
 import { useDataStore } from '../stores/dataStore'
 import BiChart from '../components/BiChart.vue'
 import { ECHARTS_THEME_OPTIONS } from '../utils/echartsTheme'
@@ -27,12 +35,15 @@ const dataStore = useDataStore()
 
 const chartType = ref<ChartType>('bar_chart')
 const xCol = ref('')
-const yCol = ref('')
+const yAxisCount = ref(1)
+const yCols = ref<string[]>([''])
+const yAxisSides = ref<Array<'left' | 'right'>>(['left'])
 const colorCol = ref('')
 const sortBy = ref<'x' | 'y' | 'none'>('none')
 const sortAsc = ref(true)
 const topnMode = ref<'off' | 'top' | 'bottom'>('off')
 const topnValue = ref(10)
+const swapXY = ref(false)
 
 const loading = ref(false)
 const chartPayload = ref<ChartPayload | null>(null)
@@ -43,26 +54,40 @@ const contentSpan = computed(() => (configCollapsed.value ? 23 : 17))
 
 // ─── 图表类型选项 ────────────────────────────────────────────────────────────
 
-const chartTypeOptions: { label: string; value: ChartType }[] = [
-  { label: '柱状图 (Bar)', value: 'bar_chart' },
-  { label: '折线图 (Line)', value: 'line_chart' },
-  { label: '散点图 (Scatter)', value: 'scatter_chart' },
-  { label: '饼图 (Pie)', value: 'pie_chart' },
-  { label: '热力图 (Heatmap)', value: 'heatmap_chart' },
-  { label: '箱线图 (Boxplot)', value: 'boxplot_chart' },
-  { label: '面积图 (Area)', value: 'area_chart' },
-  { label: '直方图 (Histogram)', value: 'histogram_chart' },
-  { label: '密度图 (Density)', value: 'density_chart' },
+const chartTypeOptions: { label: string; value: ChartType; icon: any }[] = [
+  { label: '柱状图', value: 'bar_chart', icon: Histogram },
+  { label: '折线图', value: 'line_chart', icon: TrendCharts },
+  { label: '散点图', value: 'scatter_chart', icon: Connection },
+  { label: '饼图', value: 'pie_chart', icon: PieChart },
+  { label: '热力图', value: 'heatmap_chart', icon: Grid },
+  { label: '箱线图', value: 'boxplot_chart', icon: DataAnalysis },
+  { label: '面积图', value: 'area_chart', icon: TrendCharts },
+  { label: '直方图', value: 'histogram_chart', icon: Histogram },
+  { label: '密度图', value: 'density_chart', icon: TrendCharts },
 ]
+
+const activeYCols = computed(() =>
+  yCols.value.slice(0, yAxisCount.value).filter((c) => !!c)
+)
+const activeYAxisSides = computed(() => yAxisSides.value.slice(0, yAxisCount.value))
+
+const displayedXCol = computed(() => (swapXY.value ? (activeYCols.value[0] ?? '') : xCol.value))
+const displayedYCols = computed(() => (swapXY.value ? (xCol.value ? [xCol.value] : []) : activeYCols.value))
+const displayedYAxisSides = computed<Array<'left' | 'right'>>(() =>
+  swapXY.value ? ['left'] : activeYAxisSides.value
+)
 
 // ─── 计算图表 option ─────────────────────────────────────────────────────────
 
 const chartOption = computed(() => {
-  if (!chartPayload.value || !xCol.value || !yCol.value) return null
+  if (!chartPayload.value || !displayedXCol.value || displayedYCols.value.length === 0) return null
   return buildChartOption(chartPayload.value, {
     chartType: chartType.value,
-    xCol: xCol.value,
-    yCol: yCol.value,
+    xCol: displayedXCol.value,
+    yCol: displayedYCols.value[0],
+    yCols: displayedYCols.value,
+    yAxisSides: displayedYAxisSides.value,
+    swapAxes: swapXY.value,
     colorCol: colorCol.value || undefined,
   })
 })
@@ -73,9 +98,51 @@ watch(
   () => dataStore.columnNames,
   (names) => {
     if (names.length > 0 && !xCol.value) xCol.value = names[0]
-    if (names.length > 1 && !yCol.value) yCol.value = names[1]
+    if (names.length > 1 && !yCols.value[0]) yCols.value[0] = names[1]
   },
   { immediate: true }
+)
+
+watch(yAxisCount, (count) => {
+  const safeCount = Math.min(8, Math.max(1, count))
+  if (safeCount !== count) {
+    yAxisCount.value = safeCount
+    return
+  }
+
+  if (yCols.value.length < safeCount) {
+    const candidates = dataStore.numericColumns
+    while (yCols.value.length < safeCount) {
+      const next = candidates[yCols.value.length] ?? ''
+      yCols.value.push(next)
+    }
+  } else if (yCols.value.length > safeCount) {
+    yCols.value = yCols.value.slice(0, safeCount)
+  }
+
+  if (yAxisSides.value.length < safeCount) {
+    while (yAxisSides.value.length < safeCount) {
+      yAxisSides.value.push(yAxisSides.value.length % 2 === 0 ? 'left' : 'right')
+    }
+  } else if (yAxisSides.value.length > safeCount) {
+    yAxisSides.value = yAxisSides.value.slice(0, safeCount)
+  }
+})
+
+const SWAP_INCOMPATIBLE_TYPES = new Set<ChartType>(['pie_chart', 'heatmap_chart', 'boxplot_chart'])
+
+function ensureSwapCompatibleChartType(showToast = true) {
+  if (!swapXY.value) return
+  if (!SWAP_INCOMPATIBLE_TYPES.has(chartType.value)) return
+  chartType.value = 'line_chart'
+  if (showToast) {
+    ElMessage.warning('当前图表类型不支持 X/Y 互换，已自动切换为折线图')
+  }
+}
+
+watch(
+  () => [swapXY.value, chartType.value],
+  () => ensureSwapCompatibleChartType(true)
 )
 
 // ─── 生成图表 ────────────────────────────────────────────────────────────────
@@ -85,23 +152,32 @@ async function generateChart() {
     ElMessage.warning('请先在"数据加载"页面加载数据')
     return
   }
-  if (!xCol.value || !yCol.value) {
+  if (!xCol.value || activeYCols.value.length === 0) {
     ElMessage.warning('请选择 X 轴和 Y 轴字段')
     return
   }
+
+  ensureSwapCompatibleChartType(true)
 
   // 计算 topN 参数（正数 = TopN，负数 = BottomN，0 = 关闭）
   let topN = 0
   if (topnMode.value === 'top') topN = topnValue.value
   else if (topnMode.value === 'bottom') topN = -topnValue.value
 
+  const requestXCol = swapXY.value ? activeYCols.value[0] : xCol.value
+  const requestYCols = swapXY.value ? [xCol.value].filter(Boolean) : activeYCols.value
+  if (!requestXCol || requestYCols.length === 0) {
+    ElMessage.warning('互换后 X/Y 轴字段无效，请检查字段选择')
+    return
+  }
+
   loading.value = true
   try {
     const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke(
       'fetch_chart_data',
       {
-        xCol: xCol.value,
-        yCol: yCol.value,
+        xCol: requestXCol,
+        yCols: requestYCols,
         colorCol: colorCol.value || null,
         sortBy: sortBy.value,
         sortAsc: sortAsc.value,
@@ -119,26 +195,48 @@ async function generateChart() {
     loading.value = false
   }
 }
+
+function swapAxes() {
+  const firstY = yCols.value[0] ?? ''
+  if (!xCol.value || !firstY) {
+    ElMessage.warning('请先选择 X 轴和 Y1 列后再互换')
+    return
+  }
+  const prevX = xCol.value
+  xCol.value = firstY
+  yCols.value[0] = prevX
+  ElMessage.success('已互换 X 与 Y1')
+}
 </script>
 
 <template>
   <div class="chart-analysis-view">
     <el-row :gutter="24" style="height: 100%;">
       <!-- 左侧：控制面板 -->
-      <el-col :span="configSpan">
-        <el-card v-if="!configCollapsed" class="panel-card" shadow="never">
+      <el-col :span="configSpan" class="config-col">
+        <div v-if="!configCollapsed" class="config-scroll">
+        <el-card class="panel-card" shadow="never">
           <template #header>
             <div class="panel-header">
               <span>图表参数</span>
               <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
             </div>
           </template>
-          <el-form label-width="80px" label-position="left" size="small" :disabled="!dataStore.hasData">
+          <el-form class="compact-form" label-width="70px" label-position="left" size="small" :disabled="!dataStore.hasData">
 
             <el-form-item label="图表类型">
-              <el-select v-model="chartType" style="width:100%">
-                <el-option v-for="opt in chartTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
+              <div class="chart-type-grid">
+                <el-button
+                  v-for="opt in chartTypeOptions"
+                  :key="opt.value"
+                  class="chart-type-btn"
+                  :type="chartType === opt.value ? 'primary' : 'default'"
+                  @click="chartType = opt.value"
+                >
+                  <el-icon><component :is="opt.icon" /></el-icon>
+                  <span>{{ opt.label }}</span>
+                </el-button>
+              </div>
             </el-form-item>
 
             <el-form-item label="X 轴">
@@ -147,10 +245,25 @@ async function generateChart() {
               </el-select>
             </el-form-item>
 
-            <el-form-item label="Y 轴">
-              <el-select v-model="yCol" style="width:100%">
-                <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
-              </el-select>
+            <el-form-item label="Y 轴个数">
+              <el-input-number v-model="yAxisCount" :min="1" :max="8" />
+            </el-form-item>
+
+            <el-form-item v-for="idx in yAxisCount" :key="`y-col-${idx}`" :label="`Y${idx}`">
+              <div class="y-col-config-row">
+                <el-select v-model="yCols[idx - 1]" style="width:100%" placeholder="选择数值列">
+                  <el-option v-for="c in dataStore.numericColumns" :key="c" :label="c" :value="c" />
+                </el-select>
+                <el-radio-group v-model="yAxisSides[idx - 1]" size="small">
+                  <el-radio-button label="left">左轴</el-radio-button>
+                  <el-radio-button label="right">右轴</el-radio-button>
+                </el-radio-group>
+              </div>
+            </el-form-item>
+
+            <el-form-item label="轴向操作">
+              <el-switch v-model="swapXY" active-text="请求时互换 X/Y" />
+              <el-button text type="primary" @click="swapAxes">立即互换 X 与 Y1</el-button>
             </el-form-item>
 
             <el-form-item label="颜色分组">
@@ -198,6 +311,7 @@ async function generateChart() {
             </el-text>
           </el-form>
         </el-card>
+        </div>
 
         <div v-else class="collapsed-handle" title="展开参数" @click="configCollapsed = false">›</div>
       </el-col>
@@ -278,6 +392,49 @@ async function generateChart() {
   height: auto;
 }
 
+.chart-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.chart-type-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+  font-size: 13px;
+  border-radius: 10px;
+}
+
+.chart-type-btn :deep(.el-icon) {
+  flex: 0 0 auto;
+  font-size: 15px;
+}
+
+.chart-type-btn span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (min-width: 1460px) {
+  .chart-type-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.y-col-config-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
 .collapsed-handle {
   display: flex;
   justify-content: center;
@@ -298,6 +455,20 @@ async function generateChart() {
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+.config-col {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.config-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .chart-card {
@@ -325,5 +496,13 @@ async function generateChart() {
 
 :deep(.el-card__header) {
   padding: 8px 16px;
+}
+
+.compact-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+
+.compact-form :deep(.el-button) {
+  height: 30px;
 }
 </style>

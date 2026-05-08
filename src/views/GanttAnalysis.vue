@@ -34,8 +34,8 @@ const loading = ref(false)
 const ganttPayload = ref<ChartPayload | null>(null)
 const configCollapsed = ref(false)
 
-const configSpan = computed(() => (configCollapsed.value ? 1 : 7))
-const contentSpan = computed(() => (configCollapsed.value ? 23 : 17))
+const configSpan = computed(() => (configCollapsed.value ? 1 : 6))
+const contentSpan = computed(() => (configCollapsed.value ? 23 : 18))
 
 const showTaskDetails = ref(true)
 const showDuration = ref(true)
@@ -166,7 +166,7 @@ async function loadGanttData() {
               <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
             </div>
           </template>
-          <el-form label-width="90px" label-position="left" size="small" :disabled="!dataStore.hasData">
+          <el-form class="compact-form" label-width="78px" label-position="left" size="small" :disabled="!dataStore.hasData">
 
             <el-form-item label="任务名称列">
               <el-select v-model="taskCol" style="width:100%">
@@ -383,6 +383,14 @@ async function loadGanttData() {
   min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
+}
+
+.compact-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+
+.compact-form :deep(.el-button) {
+  height: 30px;
 }
 
 .gantt-card {

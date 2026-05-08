@@ -24,13 +24,18 @@ use polars_ops::frame::pivot::{pivot, PivotAgg};
 use regex::Regex;
 use rust_xlsxwriter::{Format, Workbook};
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy)]
 enum TemporalKind {
     Date,
     DateTime,
+}
+
+pub struct LoadFileOutput {
+    pub df: DataFrame,
+    pub notices: Vec<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +55,7 @@ pub fn load_file_impl(
     skip_tail: usize,
     header_row: i64,
     header_locked: bool,
-) -> Result<DataFrame> {
+) -> Result<LoadFileOutput> {
     let p = Path::new(path);
     let ext = p
         .extension()
@@ -107,10 +112,117 @@ pub fn load_file_impl(
     // Drop fully-null rows and columns
     let df = drop_all_null_cols(df);
 
+    // Priority business numeric conversion by column name suffix
+    let (df, notices) = auto_cast_business_float_columns(df)?;
+
     // Auto-cast likely temporal string columns to real Polars Date/Datetime.
     // This improves downstream default field inference for Gantt and date filters.
     let df = auto_cast_temporal_columns(df)?;
-    Ok(df)
+    Ok(LoadFileOutput { df, notices })
+}
+
+fn auto_cast_business_float_columns(df: DataFrame) -> Result<(DataFrame, Vec<String>)> {
+    let mut notices: Vec<String> = Vec::new();
+    let mut out_cols: Vec<Column> = Vec::with_capacity(df.width());
+
+    for col in df.get_columns() {
+        let name = col.name().as_str().to_string();
+        if !is_business_float_suffix(&name) {
+            out_cols.push(col.clone());
+            continue;
+        }
+
+        if col.dtype() == &DataType::String {
+            let utf8 = col
+                .as_materialized_series()
+                .str()
+                .map_err(|e| anyhow!("Column '{name}' to string chunked failed: {e}"))?;
+
+            let mut float_vals: Vec<Option<f64>> = Vec::with_capacity(utf8.len());
+            let mut trimmed_vals: Vec<Option<String>> = Vec::with_capacity(utf8.len());
+            let mut failed_count = 0usize;
+            let mut failed_samples: VecDeque<String> = VecDeque::new();
+
+            for opt in utf8 {
+                match opt {
+                    None => {
+                        float_vals.push(None);
+                        trimmed_vals.push(None);
+                    }
+                    Some(raw) => {
+                        let t = raw.trim();
+                        if t.is_empty() {
+                            float_vals.push(None);
+                            trimmed_vals.push(None);
+                            continue;
+                        }
+
+                        trimmed_vals.push(Some(t.to_string()));
+                        if let Some(v) = parse_business_float_text(t) {
+                            float_vals.push(Some(v));
+                        } else {
+                            float_vals.push(None);
+                            failed_count += 1;
+                            if failed_samples.len() < 3 {
+                                failed_samples.push_back(t.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if failed_count == 0 {
+                out_cols.push(Series::new(name.as_str().into(), float_vals).into());
+            } else {
+                out_cols.push(Series::new(name.as_str().into(), trimmed_vals).into());
+                let sample_text = failed_samples.iter().cloned().collect::<Vec<_>>().join("、");
+                notices.push(format!(
+                    "列“{name}”包含 {failed_count} 个无法转换为浮点数的值（示例：{sample_text}），已保留为文本，请手工处理。"
+                ));
+            }
+            continue;
+        }
+
+        if col.dtype().is_primitive_numeric() {
+            match col.cast(&DataType::Float64) {
+                Ok(casted) => out_cols.push(casted),
+                Err(_) => {
+                    out_cols.push(col.clone());
+                    notices.push(format!(
+                        "列“{name}”是数值列，但自动转换为 Float64 失败，请手工检查。"
+                    ));
+                }
+            }
+            continue;
+        }
+
+        out_cols.push(col.clone());
+        notices.push(format!(
+            "列“{name}”命中金额/数量等后缀，但当前类型为 {}，无法自动转换，请手工处理。",
+            col.dtype()
+        ));
+    }
+
+    let out_df = DataFrame::new(out_cols).map_err(|e| anyhow!("rebuild DataFrame failed: {e}"))?;
+    Ok((out_df, notices))
+}
+
+fn is_business_float_suffix(name: &str) -> bool {
+    const SUFFIXES: [&str; 7] = ["金额", "数量", "额", "款", "占比", "利润", "比率"];
+    let n = name.trim_end();
+    SUFFIXES.iter().any(|s| n.ends_with(s))
+}
+
+fn parse_business_float_text(raw: &str) -> Option<f64> {
+    let mut s = raw.trim().replace([',', '，'], "");
+    s = s.replace(['￥', '¥', '$', '元'], "");
+
+    if let Some(stripped) = s.strip_suffix('%') {
+        let v = stripped.trim().parse::<f64>().ok()?;
+        return Some(v / 100.0);
+    }
+
+    s.parse::<f64>().ok()
 }
 
 fn read_csv_impl(path: &Path, has_header: bool, skip_rows: usize) -> Result<DataFrame> {
@@ -592,13 +704,22 @@ fn drop_all_null_cols(df: DataFrame) -> DataFrame {
 pub fn fetch_chart_data_impl(
     df: &DataFrame,
     x_col: &str,
-    y_col: &str,
+    y_cols: &[String],
     color_col: Option<&str>,
     sort_by: &str,    // "x" | "y" | "none"
     sort_asc: bool,
     top_n: i64,       // 0 = no limit, >0 = top-N, <0 = bottom-N
 ) -> Result<DataFrame> {
-    let mut keep = vec![x_col, y_col];
+    if y_cols.is_empty() {
+        bail!("At least one y column is required");
+    }
+
+    let mut keep: Vec<&str> = vec![x_col];
+    for y in y_cols {
+        if !keep.contains(&y.as_str()) {
+            keep.push(y.as_str());
+        }
+    }
     if let Some(c) = color_col {
         if !keep.contains(&c) {
             keep.push(c);
@@ -608,9 +729,10 @@ pub fn fetch_chart_data_impl(
     let mut result = df.select(keep).map_err(|e| anyhow!("{e}"))?;
 
     // Sort
+    let primary_y = y_cols[0].as_str();
     let sort_col = match sort_by {
         "x" => Some(x_col),
-        "y" => Some(y_col),
+        "y" => Some(primary_y),
         _ => None,
     };
     if let Some(col) = sort_col {
@@ -716,7 +838,7 @@ pub fn clean_data_impl(
     find_text: &str,
     replace_text: &str,
     use_regex: bool,
-    type_col: &str,
+    type_cols: &[String],
     type_target: &str,
 ) -> Result<DataFrame> {
     // 1. Column removal (empty = keep all)
@@ -754,7 +876,9 @@ pub fn clean_data_impl(
     // first so fill-null uses a compatible literal and avoids runtime panics.
     if !fillna_col.is_empty() {
         let fill_expr = lit(fillna_val.to_string());
-        let fill_col_expr = if fillna_col == type_col && !type_target.is_empty() {
+        let will_type_cast_fill_col = !type_target.is_empty()
+            && type_cols.iter().any(|c| c == fillna_col);
+        let fill_col_expr = if will_type_cast_fill_col {
             col(fillna_col)
                 .cast(DataType::String)
                 .fill_null(fill_expr)
@@ -825,77 +949,79 @@ pub fn clean_data_impl(
         }
     }
 
-    // 7. Type-cast a column
-    if !type_col.is_empty() {
-        let src_dtype = df2
-            .column(type_col)
-            .map_err(|e| anyhow!("{e}"))?
-            .dtype()
-            .clone();
+    // 7. Type-cast selected columns
+    if !type_cols.is_empty() {
+        for type_col in type_cols {
+            let src_dtype = df2
+                .column(type_col)
+                .map_err(|e| anyhow!("{e}"))?
+                .dtype()
+                .clone();
 
-        // String → Date / Datetime must use str().to_date/to_datetime (Polars lazy API).
-        // Numeric → Date / Datetime can use direct cast.
-        let is_string_src = matches!(src_dtype, DataType::String);
+            // String → Date / Datetime must use str().to_date/to_datetime (Polars lazy API).
+            // Numeric → Date / Datetime can use direct cast.
+            let is_string_src = matches!(src_dtype, DataType::String);
 
-        df2 = match type_target {
-            "datetime" if is_string_src => {
-                df2.lazy()
-                    .with_column(
-                        col(type_col)
-                            .str()
-                            .to_datetime(
-                                Some(TimeUnit::Milliseconds),
-                                None,
-                                StrptimeOptions {
+            df2 = match type_target {
+                "datetime" if is_string_src => {
+                    df2.lazy()
+                        .with_column(
+                            col(type_col.as_str())
+                                .str()
+                                .to_datetime(
+                                    Some(TimeUnit::Milliseconds),
+                                    None,
+                                    StrptimeOptions {
+                                        format: None,
+                                        strict: false,
+                                        exact: true,
+                                        cache: true,
+                                    },
+                                    lit("raise"),
+                                )
+                                .alias(type_col.as_str()),
+                        )
+                        .collect()
+                        .map_err(|e| anyhow!("datetime parse failed: {e}"))?
+                }
+                "date" if is_string_src => {
+                    df2.lazy()
+                        .with_column(
+                            col(type_col.as_str())
+                                .str()
+                                .to_date(StrptimeOptions {
                                     format: None,
                                     strict: false,
                                     exact: true,
                                     cache: true,
-                                },
-                                lit("raise"),
-                            )
-                            .alias(type_col),
-                    )
-                    .collect()
-                    .map_err(|e| anyhow!("datetime parse failed: {e}"))?
-            }
-            "date" if is_string_src => {
-                df2.lazy()
-                    .with_column(
-                        col(type_col)
-                            .str()
-                            .to_date(StrptimeOptions {
-                                format: None,
-                                strict: false,
-                                exact: true,
-                                cache: true,
-                            })
-                            .alias(type_col),
-                    )
-                    .collect()
-                    .map_err(|e| anyhow!("date parse failed: {e}"))?
-            }
-            _ => {
-                // All other casts (int, float, str, or numeric→date/datetime)
-                let target_dtype = match type_target {
-                    "int" => DataType::Int64,
-                    "float" => DataType::Float64,
-                    "str" => DataType::String,
-                    "datetime" => DataType::Datetime(TimeUnit::Milliseconds, None),
-                    "date" => DataType::Date,
-                    other => bail!("Unknown target type: {other}"),
-                };
-                let series = df2
-                    .column(type_col)
-                    .map_err(|e| anyhow!("{e}"))?
-                    .as_materialized_series()
-                    .cast(&target_dtype)
-                    .map_err(|e| anyhow!("cast failed: {e}"))?;
-                df2.replace(type_col, series.with_name(type_col.into()))
-                    .map_err(|e| anyhow!("{e}"))?;
-                df2
-            }
-        };
+                                })
+                                .alias(type_col.as_str()),
+                        )
+                        .collect()
+                        .map_err(|e| anyhow!("date parse failed: {e}"))?
+                }
+                _ => {
+                    // All other casts (int, float, str, or numeric→date/datetime)
+                    let target_dtype = match type_target {
+                        "int" => DataType::Int64,
+                        "float" => DataType::Float64,
+                        "str" => DataType::String,
+                        "datetime" => DataType::Datetime(TimeUnit::Milliseconds, None),
+                        "date" => DataType::Date,
+                        other => bail!("Unknown target type: {other}"),
+                    };
+                    let series = df2
+                        .column(type_col)
+                        .map_err(|e| anyhow!("{e}"))?
+                        .as_materialized_series()
+                        .cast(&target_dtype)
+                        .map_err(|e| anyhow!("cast failed: {e}"))?;
+                    df2.replace(type_col, series.with_name(type_col.clone().into()))
+                        .map_err(|e| anyhow!("{e}"))?;
+                    df2
+                }
+            };
+        }
     }
 
     Ok(df2)
