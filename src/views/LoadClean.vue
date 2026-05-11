@@ -23,6 +23,7 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { ElMessage } from 'element-plus'
 import { useDataStore } from '../stores/dataStore'
 import type { ChartPayload, DatasetMeta } from '../utils/chartAdapter'
+import { getBusinessColumnLabel, getBusinessOptionLabel } from '../utils/businessColumnLabels'
 import { useResize } from '../composables/useResize'
 import { usePathUpload } from '../composables/usePathUpload'
 
@@ -209,6 +210,11 @@ async function loadFiles(inputPaths?: string[]) {
       dataStore.setPayload(result.data)
       loadNotices.value = result.data.notices ?? []
       await refreshDatasetList()
+      if (dataStore.datasets.length > 0) {
+        const activeId = dataStore.datasets[0].id
+        dataStore.setActiveDatasetId(activeId)
+        selectedDatasetId.value = activeId
+      }
       const t4 = performance.now()
       console.log(`⚡ 状态更新: ${(t4 - t3).toFixed(2)}ms (shallowRef 优化)`)
 
@@ -725,7 +731,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 <el-collapse-item title="去除列" name="columnFilter">
                   <el-form-item label="去除列">
                     <el-select v-model="filterCols" multiple placeholder="留空=不去除" clearable>
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
                   <el-form-item class="section-actions">
@@ -738,7 +744,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 <el-collapse-item title="行数据条件过滤" name="rowFilter">
                   <el-form-item label="目标列">
                     <el-select v-model="rowFilterCol" placeholder="选择列" clearable>
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="操作符">
@@ -760,7 +766,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 <el-collapse-item title="填充缺失值" name="fillna">
                   <el-form-item label="目标列">
                     <el-select v-model="fillnaCol" placeholder="选择列" clearable>
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="填充值">
@@ -776,7 +782,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 <el-collapse-item title="去重" name="dedup">
                   <el-form-item label="去重列">
                     <el-select v-model="dedupCols" multiple placeholder="空 = 全列去重" clearable>
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
                   <el-form-item class="section-actions">
@@ -789,7 +795,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 <el-collapse-item title="去除前后空格" name="trim">
                   <el-form-item label="目标列">
                     <el-select v-model="trimCols" multiple placeholder="选择字符串列" clearable>
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
                   <el-form-item class="section-actions">
@@ -802,7 +808,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 <el-collapse-item title="查找替换" name="findReplace">
                   <el-form-item label="目标列">
                     <el-select v-model="frCols" multiple placeholder="选择列" clearable>
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="查找">
@@ -824,7 +830,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 <el-collapse-item title="类型转换" name="typeCast">
                   <el-form-item label="目标列">
                     <el-select v-model="typeCols" multiple placeholder="选择一列或多列" clearable>
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
                   <el-form-item label="目标类型">
@@ -919,11 +925,11 @@ async function exportFile(format: 'csv' | 'xlsx') {
             </div>
             <el-table :data="previewRows" border stripe size="small" style="width: 100%"
               :default-sort="{ prop: '', order: null }" height="100%" @sort-change="handleTableSort">
-              <el-table-column v-for="col in tableColumns" :key="col.name" :prop="col.name" :label="col.name"
+              <el-table-column v-for="col in tableColumns" :key="col.name" :prop="col.name" :label="getBusinessColumnLabel(col.name)"
                 sortable="custom" min-width="120" show-overflow-tooltip>
                 <template #header>
                   <div class="col-header">
-                    <span>{{ col.name }}</span>
+                    <span>{{ getBusinessColumnLabel(col.name) }}</span>
                     <el-tag size="small" type="info">{{ col.dtype }}</el-tag>
                   </div>
                 </template>

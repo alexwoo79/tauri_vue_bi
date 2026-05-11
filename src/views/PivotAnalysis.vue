@@ -15,6 +15,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { ElMessage } from 'element-plus'
 import { useDataStore } from '../stores/dataStore'
 import type { ChartPayload } from '../utils/chartAdapter'
+import { getBusinessColumnLabel, getBusinessOptionLabel } from '../utils/businessColumnLabels'
 import { useResize } from '../composables/useResize'
 import { useDatasetActions } from '../composables/useDatasetActions'
 
@@ -300,19 +301,19 @@ function resetPivotConfig() {
 
                   <el-form-item label="行分组">
                     <el-select v-model="rowCols" multiple placeholder="选择行分组字段" style="width:100%">
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
 
                   <el-form-item label="列分组">
                     <el-select v-model="colCols" multiple placeholder="（可选）" clearable style="width:100%">
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
 
                   <el-form-item label="值字段">
                     <el-select v-model="valueCols" multiple placeholder="选择值字段" style="width:100%">
-                      <el-option v-for="c in dataStore.numericColumns" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.numericColumns" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
 
@@ -354,13 +355,13 @@ function resetPivotConfig() {
 
                   <el-form-item label="标识列">
                     <el-select v-model="meltIdCols" multiple clearable placeholder="可选：作为 id 维度保留" style="width:100%">
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
 
                   <el-form-item label="值列">
                     <el-select v-model="meltValueCols" multiple clearable placeholder="为空时默认选择非标识列" style="width:100%">
-                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                      <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                     </el-select>
                   </el-form-item>
 
@@ -429,7 +430,7 @@ function resetPivotConfig() {
             </div>
             <el-table :data="sortedRows.length > 0 ? sortedRows : pivotPayload.rows" border stripe size="small" 
               style="width:100%; flex:1" @sort-change="handleTableSort">
-              <el-table-column v-for="col in pivotPayload.columns" :key="col.name" :prop="col.name" :label="col.name"
+              <el-table-column v-for="col in pivotPayload.columns" :key="col.name" :prop="col.name" :label="getBusinessColumnLabel(col.name)"
                 sortable="custom" min-width="120" show-overflow-tooltip />
             </el-table>
           </div>

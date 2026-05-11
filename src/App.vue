@@ -19,7 +19,7 @@
 
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Download, DataLine, Grid, Calendar, Link } from '@element-plus/icons-vue'
+import { Download, DataLine, Grid, Calendar, Link, TrendCharts } from '@element-plus/icons-vue'
 import appLogo from './assets/app-logo.png'
 
 const router = useRouter()
@@ -127,6 +127,13 @@ function toggleSidebar() {
             <Calendar />
           </el-icon>
           <template #title>甘特图分析</template>
+        </el-menu-item>
+
+        <el-menu-item index="time-analysis">
+          <el-icon>
+            <TrendCharts />
+          </el-icon>
+          <template #title>时间序列分析</template>
         </el-menu-item>
       </el-menu>
 

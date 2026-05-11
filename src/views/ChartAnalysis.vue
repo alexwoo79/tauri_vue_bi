@@ -28,6 +28,7 @@ import BiChart from '../components/BiChart.vue'
 import { ECHARTS_THEME_OPTIONS } from '../utils/echartsTheme'
 import { buildChartOption } from '../utils/chartAdapter'
 import type { ChartPayload, ChartType } from '../utils/chartAdapter'
+import { getBusinessOptionLabel } from '../utils/businessColumnLabels'
 import { useResize } from '../composables/useResize'
 
 const dataStore = useDataStore()
@@ -247,7 +248,7 @@ function swapAxes() {
 
               <el-form-item label="X 轴">
                 <el-select v-model="xCol" style="width:100%">
-                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                 </el-select>
               </el-form-item>
 
@@ -258,7 +259,7 @@ function swapAxes() {
               <el-form-item v-for="idx in yAxisCount" :key="`y-col-${idx}`" :label="`Y${idx}`">
                 <div class="y-col-config-row">
                   <el-select v-model="yCols[idx - 1]" style="width:100%" placeholder="选择数值列">
-                    <el-option v-for="c in dataStore.numericColumns" :key="c" :label="c" :value="c" />
+                    <el-option v-for="c in dataStore.numericColumns" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                   </el-select>
                   <el-radio-group v-model="yAxisSides[idx - 1]" size="small">
                     <el-radio-button label="left">左轴</el-radio-button>
@@ -274,7 +275,7 @@ function swapAxes() {
 
               <el-form-item label="颜色分组">
                 <el-select v-model="colorCol" placeholder="（可选）" clearable style="width:100%">
-                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                 </el-select>
               </el-form-item>
 

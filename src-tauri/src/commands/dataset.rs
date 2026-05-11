@@ -14,14 +14,44 @@ use crate::types::{ApiResult, ChartPayload, DatasetMeta};
 
 #[tauri::command]
 pub async fn list_datasets() -> ApiResult<Vec<DatasetMeta>> {
+    let active_id = ACTIVE_DATASET_ID.lock().unwrap().clone();
     let mut metas: Vec<DatasetMeta> = DATASET_REGISTRY
         .lock()
         .unwrap()
         .iter()
         .map(|r| r.meta.clone())
         .collect();
-    metas.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+    metas.sort_by(|a, b| {
+        let a_active = active_id.as_ref().map(|id| id == &a.id).unwrap_or(false);
+        let b_active = active_id.as_ref().map(|id| id == &b.id).unwrap_or(false);
+        b_active
+            .cmp(&a_active)
+            .then_with(|| b.created_at_ms.cmp(&a.created_at_ms))
+    });
     ApiResult::success(metas)
+}
+
+#[tauri::command]
+pub async fn get_dataset_columns(dataset_id: String) -> ApiResult<Vec<String>> {
+    let found = DATASET_REGISTRY
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|r| r.meta.id == dataset_id)
+        .cloned();
+
+    let Some(rec) = found else {
+        return ApiResult::failure("Dataset not found");
+    };
+
+    let columns = rec
+        .df
+        .get_columns()
+        .iter()
+        .map(|s| s.name().to_string())
+        .collect::<Vec<String>>();
+
+    ApiResult::success(columns)
 }
 
 #[tauri::command]

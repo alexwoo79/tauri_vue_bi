@@ -11,6 +11,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { ElMessage } from 'element-plus'
 import { useDataStore } from '../stores/dataStore'
 import type { ChartPayload } from '../utils/chartAdapter'
+import { getBusinessColumnLabel, getBusinessOptionLabel } from '../utils/businessColumnLabels'
 import { useResize } from '../composables/useResize'
 import { useDatasetActions } from '../composables/useDatasetActions'
 import { usePathUpload } from '../composables/usePathUpload'
@@ -61,9 +62,25 @@ function onRightDatasetChange(id: string) {
 }
 
 async function fetchRightColumns(_datasetId: string) {
-    // 右表列名无法从 list_datasets 元数据获取（不含 schema）
-    // 用户手动输入右表列名，或通过 join 时后端报错引导
     rightColumns.value = []
+    if (!_datasetId) return
+    try {
+        const result: { ok: boolean; data?: string[]; error?: string } = await invoke('get_dataset_columns', {
+            datasetId: _datasetId,
+        })
+        if (result.ok && result.data) {
+            rightColumns.value = result.data
+            const set = new Set(rightColumns.value)
+            keyPairs.value = keyPairs.value.map((p) => ({
+                leftCol: p.leftCol,
+                rightCol: set.has(p.rightCol) ? p.rightCol : '',
+            }))
+        } else {
+            ElMessage.warning(result.error ?? '获取右表列名失败，可手动输入')
+        }
+    } catch (e) {
+        ElMessage.warning(`获取右表列名失败，可手动输入: ${String(e)}`)
+    }
 }
 
 // ─── CONCAT 参数 ──────────────────────────────────────────────────────────────
@@ -261,6 +278,7 @@ async function saveConcatResult() {
 
 function resetJoinConfig() {
     rightDatasetId.value = ''
+    rightColumns.value = []
     joinHow.value = 'inner'
     keyPairs.value = [{ leftCol: '', rightCol: '' }]
     saveDatasetName.value = ''
@@ -411,11 +429,14 @@ onMounted(async () => {
 
                                     <div v-for="(pair, idx) in keyPairs" :key="idx" class="key-pair-row">
                                         <el-select v-model="pair.leftCol" placeholder="左表列" style="flex:1">
-                                            <el-option v-for="c in dataStore.columnNames" :key="c" :label="c"
+                                            <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)"
                                                 :value="c" />
                                         </el-select>
                                         <span class="key-arrow">→</span>
-                                        <el-input v-model="pair.rightCol" placeholder="右表列名" style="flex:1" />
+                                        <el-select v-model="pair.rightCol" placeholder="右表列名" style="flex:1" filterable allow-create clearable default-first-option>
+                                            <el-option v-for="c in rightColumns" :key="c" :label="getBusinessOptionLabel(c)"
+                                                :value="c" />
+                                        </el-select>
                                         <el-button text type="danger" size="small" :disabled="keyPairs.length <= 1"
                                             @click="removeKeyPair(idx)">✕</el-button>
                                     </div>
@@ -579,7 +600,7 @@ onMounted(async () => {
                         <el-table :data="sortedRows.length > 0 ? sortedRows : resultPayload.rows" border stripe size="small" 
                             style="width:100%; flex:1" @sort-change="handleTableSort">
                             <el-table-column v-for="col in resultPayload.columns" :key="col.name" :prop="col.name"
-                                :label="col.name" sortable="custom" min-width="110" show-overflow-tooltip />
+                                :label="getBusinessColumnLabel(col.name)" sortable="custom" min-width="110" show-overflow-tooltip />
                         </el-table>
                     </div>
                 </el-card>

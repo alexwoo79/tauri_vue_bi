@@ -12,3 +12,4 @@ pub mod melt;
 pub mod merge;
 pub mod pivot;
 pub mod save;
+pub mod time_analysis;

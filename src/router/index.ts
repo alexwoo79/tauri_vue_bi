@@ -7,6 +7,7 @@ import ChartAnalysis from '../views/ChartAnalysis.vue'
 import PivotAnalysis from '../views/PivotAnalysis.vue'
 import GanttAnalysis from '../views/GanttAnalysis.vue'
 import MergeAnalysis from '../views/MergeAnalysis.vue'
+import TimeAnalysis from '../views/TimeAnalysis.vue'
 
 const router = createRouter({
   // Tauri 使用 hash 模式路由（避免 file:// 协议下的 404 问题）
@@ -45,6 +46,12 @@ const router = createRouter({
       name: 'merge-analysis',
       component: MergeAnalysis,
       meta: { title: '🔗 数据表合并' },
+    },
+    {
+      path: '/time-analysis',
+      name: 'time-analysis',
+      component: TimeAnalysis,
+      meta: { title: '📈 时间序列分析' },
     },
   ],
 })

@@ -17,6 +17,7 @@ import { useDataStore } from '../stores/dataStore'
 import BiGanttChart from '../components/BiGanttChart.vue'
 import { ECHARTS_THEME_OPTIONS } from '../utils/echartsTheme'
 import type { ChartPayload } from '../utils/chartAdapter'
+import { getBusinessOptionLabel } from '../utils/businessColumnLabels'
 import { useResize } from '../composables/useResize'
 
 const dataStore = useDataStore()
@@ -172,43 +173,43 @@ async function loadGanttData() {
 
               <el-form-item label="任务名称列">
                 <el-select v-model="taskCol" style="width:100%">
-                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                 </el-select>
               </el-form-item>
 
               <el-form-item label="开始日期列">
                 <el-select v-model="startCol" style="width:100%">
-                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                 </el-select>
               </el-form-item>
 
               <el-form-item label="结束日期列">
                 <el-select v-model="endCol" style="width:100%">
-                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                 </el-select>
               </el-form-item>
 
               <el-form-item label="项目列">
                 <el-select v-model="projectCol" placeholder="（可选）" clearable style="width:100%">
-                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                 </el-select>
               </el-form-item>
 
               <el-form-item label="颜色分组列">
                 <el-select v-model="colorCol" placeholder="（可选）" clearable style="width:100%">
-                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                 </el-select>
               </el-form-item>
 
               <el-form-item label="里程碑列">
                 <el-select v-model="milestoneCol" placeholder="（可选）" clearable style="width:100%">
-                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                 </el-select>
               </el-form-item>
 
               <el-form-item label="详情列">
                 <el-select v-model="detailCol" placeholder="tooltip 显示字段" clearable style="width:100%">
-                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="c" :value="c" />
+                  <el-option v-for="c in dataStore.columnNames" :key="c" :label="getBusinessOptionLabel(c)" :value="c" />
                 </el-select>
               </el-form-item>
 

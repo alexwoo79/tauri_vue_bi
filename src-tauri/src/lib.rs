@@ -21,7 +21,7 @@ pub mod types;
 use crate::commands::{
     chart::fetch_chart_data,
     clean::{clean_data, rollback_clean, undo_clean},
-    dataset::{delete_datasets, list_datasets, save_current_dataset, sort_and_save_dataset, switch_dataset},
+    dataset::{delete_datasets, get_dataset_columns, list_datasets, save_current_dataset, sort_and_save_dataset, switch_dataset},
     gantt::fetch_gantt_data,
     groupby::groupby_agg,
     loader::{get_dataframe_info, load_file, load_files, load_paths_as_datasets},
@@ -29,6 +29,13 @@ use crate::commands::{
     merge::{concat_datasets, concat_paths, join_datasets},
     pivot::pivot_data,
     save::save_file,
+    time_analysis::{
+        time_derive_columns,
+        time_agg,
+        time_rolling_avg,
+        time_growth_rate,
+        time_fill_missing,
+    },
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -56,6 +63,7 @@ pub fn run() {
             fetch_gantt_data,
             save_file,
             list_datasets,
+            get_dataset_columns,
             switch_dataset,
             save_current_dataset,
             delete_datasets,
@@ -63,6 +71,11 @@ pub fn run() {
             join_datasets,
             concat_datasets,
             concat_paths,
+            time_derive_columns,
+            time_agg,
+            time_rolling_avg,
+            time_growth_rate,
+            time_fill_missing,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
