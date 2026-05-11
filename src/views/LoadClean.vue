@@ -676,6 +676,15 @@ async function exportFile(format: 'csv' | 'xlsx') {
                   锁定后，跳过开头行从表头下一行开始计算
                 </el-checkbox>
               </el-form-item>
+              <el-form-item class="single-action">
+                <el-button
+                  class="action-btn"
+                  type="primary"
+                  :loading="loading"
+                  :disabled="filePaths.length === 0"
+                  @click="loadFiles()"
+                >{{ dataStore.hasData ? '重新加载' : '加载数据' }}</el-button>
+              </el-form-item>
 
               <el-divider class="dataset-block-divider" />
 
