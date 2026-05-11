@@ -81,6 +81,11 @@ const cleanedPayload = shallowRef<ChartPayload | null>(null)
 const cleanLoading = ref(false)
 const configCollapsed = ref(false)
 
+// ─── 排序状态 ─────────────────────────────────────────────────────────────────
+const sortCol = ref('')
+const sortAsc = ref(true)
+const sortedRows = ref<Record<string, any>[]>([])
+
 const { configWidth, startResize } = useResize(320, 640)
 const activeCleanSections = ref<string[]>([
   'columnFilter',
@@ -114,9 +119,14 @@ const tableColumns = computed(
   () => (cleanedPayload.value ?? dataStore.payload)?.columns ?? []
 )
 
-// 预览的行（优先显示清洗后，否则显示原始）
+// 预览的行（优先显示排序后，其次清洗后，最后原始）
 const previewRows = computed(
-  () => (cleanedPayload.value ?? dataStore.payload)?.rows ?? []
+  () => {
+    if (sortedRows.value.length > 0) {
+      return sortedRows.value
+    }
+    return (cleanedPayload.value ?? dataStore.payload)?.rows ?? []
+  }
 )
 
 const previewDatasetName = computed(() => {
@@ -511,6 +521,80 @@ async function restoreInitialData() {
   }
 }
 
+// ─── 排序功能 ──────────────────────────────────────────────────────────────────
+
+function handleTableSort(evt: any) {
+  const { prop, order } = evt
+  
+  if (!prop || !order) {
+    // 清除排序
+    sortCol.value = ''
+    sortedRows.value = []
+    return
+  }
+
+  sortCol.value = prop
+  sortAsc.value = order === 'ascending'
+  
+  // 对预览行进行排序
+  const rows = previewRows.value
+  const sorted = [...rows].sort((a, b) => {
+    const aVal = a[prop]
+    const bVal = b[prop]
+    
+    // 处理 null/undefined
+    if (aVal == null && bVal == null) return 0
+    if (aVal == null) return sortAsc.value ? 1 : -1
+    if (bVal == null) return sortAsc.value ? -1 : 1
+    
+    // 数值比较
+    if (typeof aVal === 'number' && typeof bVal === 'number') {
+      return sortAsc.value ? aVal - bVal : bVal - aVal
+    }
+    
+    // 字符串比较
+    const aStr = String(aVal)
+    const bStr = String(bVal)
+    const cmp = aStr.localeCompare(bStr)
+    return sortAsc.value ? cmp : -cmp
+  })
+  
+  sortedRows.value = sorted
+}
+
+async function saveSortedDataset() {
+  if (!dataStore.hasData) {
+    ElMessage.warning('请先加载数据')
+    return
+  }
+  
+  if (!sortCol.value) {
+    ElMessage.warning('请先选择排序列')
+    return
+  }
+  
+  saveLoading.value = true
+  try {
+    const result: { ok: boolean; data?: any; error?: string } = await invoke('sort_and_save_dataset', {
+      sortCol: sortCol.value,
+      sortAsc: sortAsc.value,
+      datasetName: null,
+    })
+    
+    if (result.ok && result.data) {
+      ElMessage.success(`已保存排序结果为新数据集: ${result.data.name}`)
+      // 刷新数据集列表
+      await refreshDatasetList()
+    } else {
+      ElMessage.error(result.error ?? '保存排序结果失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  } finally {
+    saveLoading.value = false
+  }
+}
+
 // ─── 导出文件 ────────────────────────────────────────────────────────────────
 
 const saveLoading = ref(false)
@@ -800,6 +884,19 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 <el-text type="info" size="small">
                   {{ previewRows.length }} 行（总计 {{ dataStore.payload?.total_rows }} 行）
                 </el-text>
+                <div v-if="sortCol" class="sort-status" style="margin-left: 12px;">
+                  <el-text type="success" size="small">
+                    📊 已按 <strong>{{ sortCol }}</strong> {{ sortAsc ? '升序' : '降序' }} 排序
+                  </el-text>
+                  <el-button link type="primary" size="small" @click="saveSortedDataset" :loading="saveLoading"
+                    style="margin-left: 8px;">
+                    💾 保存排序结果
+                  </el-button>
+                  <el-button link type="info" size="small" @click="() => { sortCol = ''; sortedRows = []; }"
+                    style="margin-left: 4px;">
+                    ✕ 清除排序
+                  </el-button>
+                </div>
               </div>
               <div v-if="loadNotices.length > 0" class="table-info-notices">
                 <el-alert type="warning" show-icon :closable="false" title="以下列未能自动转换为浮点数，请手工处理">
@@ -812,9 +909,9 @@ async function exportFile(format: 'csv' | 'xlsx') {
               </div>
             </div>
             <el-table :data="previewRows" border stripe size="small" style="width: 100%"
-              :default-sort="{ prop: '', order: null }" height="100%">
+              :default-sort="{ prop: '', order: null }" height="100%" @sort-change="handleTableSort">
               <el-table-column v-for="col in tableColumns" :key="col.name" :prop="col.name" :label="col.name"
-                min-width="120" show-overflow-tooltip>
+                sortable="custom" min-width="120" show-overflow-tooltip>
                 <template #header>
                   <div class="col-header">
                     <span>{{ col.name }}</span>

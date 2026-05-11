@@ -79,21 +79,26 @@ pub fn pivot_data_impl(
     };
 
     if columns.is_empty() {
-        let agg_expr = match agg {
-            "sum" => col(values[0].as_str()).sum(),
-            "mean" => col(values[0].as_str()).mean(),
-            "count" => col(values[0].as_str()).count(),
-            "min" => col(values[0].as_str()).min(),
-            "max" => col(values[0].as_str()).max(),
-            _ => unreachable!(),
-        }
-        .alias(values[0].as_str());
+        let agg_exprs: Vec<Expr> = values
+            .iter()
+            .map(|v| {
+                match agg {
+                    "sum" => col(v.as_str()).sum(),
+                    "mean" => col(v.as_str()).mean(),
+                    "count" => col(v.as_str()).count(),
+                    "min" => col(v.as_str()).min(),
+                    "max" => col(v.as_str()).max(),
+                    _ => unreachable!(),
+                }
+                .alias(v.as_str())
+            })
+            .collect();
 
         let result = df
             .clone()
             .lazy()
             .group_by(rows.iter().map(|c| col(c.as_str())).collect::<Vec<_>>())
-            .agg([agg_expr])
+            .agg(agg_exprs)
             .collect()
             .map_err(|e| anyhow!("{e}"))?;
 

@@ -38,6 +38,12 @@ const childDatasetName = ref('')
 const meltChildDatasetName = ref('')
 const formSections = ref<string[]>(['pivot', 'melt'])
 
+// ─── 排序状态 ─────────────────────────────────────────────────────────────────
+const sortCol = ref('')
+const sortAsc = ref(true)
+const sortedRows = ref<Record<string, any>[]>([])
+const saveLoading = ref(false)
+
 const { configWidth, startResize } = useResize(320, 600)
 const { loadDatasets } = useDatasetActions()
 
@@ -171,6 +177,79 @@ async function saveMeltAsDataset() {
   }
 }
 
+// ─── 排序功能 ──────────────────────────────────────────────────────────────────
+
+function handleTableSort(evt: any) {
+  const { prop, order } = evt
+
+  if (!prop || !order) {
+    // 清除排序
+    sortCol.value = ''
+    sortedRows.value = []
+    return
+  }
+
+  sortCol.value = prop
+  sortAsc.value = order === 'ascending'
+
+  // 对透视结果行进行排序
+  const rows = pivotPayload.value?.rows ?? []
+  const sorted = [...rows].sort((a, b) => {
+    const aVal = a[prop]
+    const bVal = b[prop]
+
+    // 处理 null/undefined
+    if (aVal == null && bVal == null) return 0
+    if (aVal == null) return sortAsc.value ? 1 : -1
+    if (bVal == null) return sortAsc.value ? -1 : 1
+
+    // 数值比较
+    if (typeof aVal === 'number' && typeof bVal === 'number') {
+      return sortAsc.value ? aVal - bVal : bVal - aVal
+    }
+
+    // 字符串比较
+    const aStr = String(aVal)
+    const bStr = String(bVal)
+    const cmp = aStr.localeCompare(bStr)
+    return sortAsc.value ? cmp : -cmp
+  })
+
+  sortedRows.value = sorted
+}
+
+async function savePivotSortedDataset() {
+  if (!pivotPayload.value) {
+    ElMessage.warning('请先执行透视')
+    return
+  }
+
+  if (!sortCol.value) {
+    ElMessage.warning('请先选择排序列')
+    return
+  }
+
+  saveLoading.value = true
+  try {
+    const result: { ok: boolean; data?: any; error?: string } = await invoke('sort_and_save_dataset', {
+      sortCol: sortCol.value,
+      sortAsc: sortAsc.value,
+      datasetName: null,
+    })
+
+    if (result.ok && result.data) {
+      ElMessage.success(`已保存排序结果为新数据集: ${result.data.name}`)
+      await loadDatasets()
+    } else {
+      ElMessage.error(result.error ?? '保存排序结果失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  } finally {
+    saveLoading.value = false
+  }
+}
+
 function resetPivotConfig() {
   rowCols.value = []
   colCols.value = []
@@ -185,6 +264,9 @@ function resetPivotConfig() {
   childDatasetName.value = ''
   meltChildDatasetName.value = ''
   pivotPayload.value = null
+  sortCol.value = ''
+  sortAsc.value = true
+  sortedRows.value = []
   formSections.value = ['pivot', 'melt']
 
   ElMessage.success('透视与逆透视参数已重置')
@@ -331,10 +413,26 @@ function resetPivotConfig() {
           <div v-else-if="!pivotPayload" class="display-empty">
             <el-empty description="暂无数据，请先加载数据" :image-size="80" />
           </div>
-          <el-table v-else :data="pivotPayload.rows" border stripe size="small" style="width:100%" height="100%">
-            <el-table-column v-for="col in pivotPayload.columns" :key="col.name" :prop="col.name" :label="col.name"
-              min-width="120" show-overflow-tooltip />
-          </el-table>
+          <div v-else style="display:flex; flex-direction:column; height:100%; gap:8px">
+            <div v-if="sortCol" class="sort-status">
+              <el-text type="success" size="small">
+                📊 已按 <strong>{{ sortCol }}</strong> {{ sortAsc ? '升序' : '降序' }} 排序
+              </el-text>
+              <el-button link type="primary" size="small" @click="savePivotSortedDataset" :loading="saveLoading"
+                style="margin-left: 8px;">
+                💾 保存排序结果
+              </el-button>
+              <el-button link type="info" size="small" @click="() => { sortCol = ''; sortedRows = []; }"
+                style="margin-left: 4px;">
+                ✕ 清除排序
+              </el-button>
+            </div>
+            <el-table :data="sortedRows.length > 0 ? sortedRows : pivotPayload.rows" border stripe size="small" 
+              style="width:100%; flex:1" @sort-change="handleTableSort">
+              <el-table-column v-for="col in pivotPayload.columns" :key="col.name" :prop="col.name" :label="col.name"
+                sortable="custom" min-width="120" show-overflow-tooltip />
+            </el-table>
+          </div>
         </el-card>
       </div>
     </div>

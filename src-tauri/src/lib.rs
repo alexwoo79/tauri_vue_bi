@@ -21,7 +21,7 @@ pub mod types;
 use crate::commands::{
     chart::fetch_chart_data,
     clean::{clean_data, rollback_clean, undo_clean},
-    dataset::{delete_datasets, list_datasets, save_current_dataset, switch_dataset},
+    dataset::{delete_datasets, list_datasets, save_current_dataset, sort_and_save_dataset, switch_dataset},
     gantt::fetch_gantt_data,
     groupby::groupby_agg,
     loader::{get_dataframe_info, load_file, load_files, load_paths_as_datasets},
@@ -59,6 +59,7 @@ pub fn run() {
             switch_dataset,
             save_current_dataset,
             delete_datasets,
+            sort_and_save_dataset,
             join_datasets,
             concat_datasets,
             concat_paths,
