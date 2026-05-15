@@ -11,6 +11,7 @@ pub mod groupby;
 pub mod loader;
 pub mod melt;
 pub mod merge;
+pub mod python_agent;
 pub mod pivot;
 pub mod save;
 pub mod time_analysis;

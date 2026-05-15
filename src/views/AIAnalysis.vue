@@ -1,24 +1,44 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Setting } from '@element-plus/icons-vue'
+import { Setting, ArrowLeft, ArrowDown, ArrowUp, DataLine, Document, DocumentCopy } from '@element-plus/icons-vue'
+import { invoke } from '@tauri-apps/api/core'
+import { useSessionStore } from '../stores/sessionStore'
+import { useDataStore } from '../stores/dataStore'
+import AiSessionSidebar from '../components/AiSessionSidebar.vue'
+import AiMessageStream from '../components/AiMessageStream.vue'
+import AiMessageInput from '../components/AiMessageInput.vue'
+import type { AiEvent, AiModelConfig } from '../utils/aiTypes'
+import type { ChartPayload } from '../utils/chartTypes'
 
-interface AiModelConfig {
-  id: string
-  provider: string
-  displayName: string
-  apiKey: string
-  baseUrl: string
-  model: string
-  enabled: boolean
-  isCustom: boolean
-  contextWindow: number | null
-  maxOutputTokens: number | null
-  enableThinking: boolean
-}
+// ────────────────────────────────────────────────────────────
+// 会话管理
+// ────────────────────────────────────────────────────────────
+
+const sessionStore = useSessionStore()
+const dataStore = useDataStore()
+const isStreaming = ref(false)
+
+onMounted(() => {
+  sessionStore.loadFromStorage()
+  // 如果没有会话，创建一个
+  if (!sessionStore.currentSession) {
+    sessionStore.createSession()
+  }
+
+  void bootstrapPythonAgent()
+})
+
+const currentSession = computed(() => sessionStore.currentSession)
+
+// ────────────────────────────────────────────────────────────
+// 模型配置（从 localStorage）
+// ────────────────────────────────────────────────────────────
 
 const STORAGE_CONFIGS = 'bi.ai.model.configs.v1'
 const STORAGE_SELECTED = 'bi.ai.model.selected.v1'
+const STORAGE_REMOTE_SESSION_MAP = 'bi.ai.remote.session.map.v1'
+const STORAGE_REMOTE_DS_SYNC_MAP = 'bi.ai.remote.datasource.sync.v1'
 
 const defaultConfigs: AiModelConfig[] = [
   {
@@ -74,9 +94,66 @@ function loadConfigs(): AiModelConfig[] {
   }
 }
 
+function loadRemoteSessionMap(): Record<string, string> {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_REMOTE_SESSION_MAP)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, string>
+    if (!parsed || typeof parsed !== 'object') return {}
+    return parsed
+  } catch {
+    return {}
+  }
+}
+
+function saveRemoteSessionMap() {
+  window.localStorage.setItem(STORAGE_REMOTE_SESSION_MAP, JSON.stringify(remoteSessionMap.value))
+}
+
+function loadRemoteDataSyncMap(): Record<string, string> {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_REMOTE_DS_SYNC_MAP)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, string>
+    if (!parsed || typeof parsed !== 'object') return {}
+    return parsed
+  } catch {
+    return {}
+  }
+}
+
+function saveRemoteDataSyncMap() {
+  window.localStorage.setItem(STORAGE_REMOTE_DS_SYNC_MAP, JSON.stringify(remoteDataSyncMap.value))
+}
+
 const modelConfigs = ref<AiModelConfig[]>(loadConfigs())
 const selectedModelId = ref(window.localStorage.getItem(STORAGE_SELECTED) || modelConfigs.value[0]?.id || '')
 const settingsVisible = ref(false)
+const sidebarCollapsed = ref(false)
+const modelConfigCollapsed = ref(false)
+const sessionListCollapsed = ref(false)
+const datasourceCollapsed = ref(false)
+type DatasourceChoice = 'dataset' | 'upload'
+const uploadedFileInfo = ref<{ name: string; size: number; file: File } | null>(null)
+// 'dataset' = BI已加载数据集, 'upload' = 手动上传文件
+const selectedDatasources = ref<DatasourceChoice[]>(['dataset'])
+const pythonAgentBaseUrl = ref('')
+const pythonSessionId = ref('')
+const pythonAgentReady = ref(false)
+const tokenStats = ref({
+  inputTokens: 0,
+  outputTokens: 0,
+  sessionTotalInput: 0,
+  sessionTotalOutput: 0,
+  contextWindow: 0,
+  maxOutputTokens: 0,
+})
+const remoteSessionMap = ref<Record<string, string>>({})
+const remoteDataSyncMap = ref<Record<string, string>>({})
+const streamAbortController = ref<AbortController | null>(null)
+
+remoteSessionMap.value = loadRemoteSessionMap()
+remoteDataSyncMap.value = loadRemoteDataSyncMap()
 
 const customForm = reactive({
   displayName: '',
@@ -109,7 +186,269 @@ watch(
 
 watch(selectedModelId, (id) => {
   window.localStorage.setItem(STORAGE_SELECTED, id)
+  sessionStore.setSelectedModel(sessionStore.currentSessionId, id)
+  if (pythonAgentReady.value && pythonSessionId.value) {
+    void syncRemoteSessionModel(id)
+  }
 })
+
+watch(
+  () => sessionStore.currentSessionId,
+  (localSessionId) => {
+    if (!localSessionId || !pythonAgentReady.value) return
+    void bindRemoteSessionForLocal(localSessionId)
+  },
+  { immediate: true }
+)
+
+watch(
+  () => sessionStore.sessions.map((s) => s.sessionId).join('|'),
+  () => {
+    const existing = new Set(sessionStore.sessions.map((s) => s.sessionId))
+    let changed = false
+    Object.keys(remoteSessionMap.value).forEach((localId) => {
+      if (!existing.has(localId)) {
+        delete remoteSessionMap.value[localId]
+        delete remoteDataSyncMap.value[localId]
+        changed = true
+      }
+    })
+    if (changed) {
+      saveRemoteSessionMap()
+      saveRemoteDataSyncMap()
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => {
+    const payload = dataStore.payload
+    const cols = payload?.columns.map((c) => `${c.name}:${c.dtype}`).join('|') || ''
+    const rows = payload?.rows.length || 0
+    const total = payload?.total_rows || 0
+    return `${dataStore.activeDatasetId}|${cols}|${rows}|${total}`
+  },
+  () => {
+    if (!pythonAgentReady.value || !sessionStore.currentSessionId) return
+    void ensureRemoteDatasourceBound(sessionStore.currentSessionId)
+  }
+)
+
+// ────────────────────────────────────────────────────────────
+// 模型配置方法
+// ────────────────────────────────────────────────────────────
+
+function selectModel(modelId: string) {
+  selectedModelId.value = modelId
+}
+
+async function bootstrapPythonAgent() {
+  try {
+    const status = await invoke<{
+      running: boolean
+      port: number
+      base_url: string
+      python_bin: string
+      app_dir: string
+      pid?: number | null
+    }>('start_python_agent', { port: 5001 })
+
+    pythonAgentBaseUrl.value = status.base_url || 'http://127.0.0.1:5001'
+    pythonAgentReady.value = true
+
+    const localSessionId = sessionStore.currentSessionId
+    if (localSessionId) {
+      await bindRemoteSessionForLocal(localSessionId)
+    }
+  } catch (error) {
+    console.error('[AIAnalysis] bootstrapPythonAgent failed:', error)
+    ElMessage.warning('Python Agent 启动失败，当前先保留本地模拟模式')
+  }
+}
+
+async function createRemoteSession(): Promise<string> {
+  if (!pythonAgentBaseUrl.value) {
+    throw new Error('Python Agent 基础地址为空')
+  }
+  const sessionResp = await fetch(`${pythonAgentBaseUrl.value}/api/session/new`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+
+  if (!sessionResp.ok) {
+    throw new Error(`创建远端会话失败: ${sessionResp.status}`)
+  }
+
+  const sessionJson = (await sessionResp.json()) as { session_id?: string }
+  if (!sessionJson.session_id) {
+    throw new Error('远端会话返回为空')
+  }
+  return sessionJson.session_id
+}
+
+async function bindRemoteSessionForLocal(localSessionId: string) {
+  if (!pythonAgentReady.value) return
+
+  let remoteId = remoteSessionMap.value[localSessionId]
+  if (!remoteId) {
+    remoteId = await createRemoteSession()
+    remoteSessionMap.value[localSessionId] = remoteId
+    saveRemoteSessionMap()
+  }
+
+  pythonSessionId.value = remoteId
+
+  const modelId = sessionStore.getSelectedModel(localSessionId) || selectedModelId.value
+  if (modelId) {
+    await syncRemoteSessionModel(modelId)
+  }
+
+  await ensureRemoteDatasourceBound(localSessionId)
+}
+
+function escapeCsvCell(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  const s = String(value)
+  if (s.includes('"') || s.includes(',') || s.includes('\n') || s.includes('\r')) {
+    return `"${s.replace(/"/g, '""')}"`
+  }
+  return s
+}
+
+function chartPayloadToCsv(payload: ChartPayload): string {
+  const columns = payload.columns.map((c) => c.name)
+  const header = columns.map((c) => escapeCsvCell(c)).join(',')
+  const lines = payload.rows.map((row) => columns.map((col) => escapeCsvCell(row[col])).join(','))
+  return [header, ...lines].join('\n')
+}
+
+function dataFingerprint(payload: ChartPayload): string {
+  const cols = payload.columns.map((c) => `${c.name}:${c.dtype}`).join('|')
+  return `${dataStore.activeDatasetId}|${payload.total_rows}|${payload.rows.length}|${cols}`
+}
+
+async function ensureRemoteDatasourceBound(localSessionId: string) {
+  if (!pythonAgentReady.value) return
+  const remoteId = remoteSessionMap.value[localSessionId]
+  if (!remoteId) return
+
+  const wantDataset = selectedDatasources.value.includes('dataset') && !!dataStore.payload
+  const wantUpload = selectedDatasources.value.includes('upload') && !!uploadedFileInfo.value
+  if (!wantDataset && !wantUpload) return
+
+  const datasetFp = wantDataset ? dataFingerprint(dataStore.payload!) : ''
+  const uploadFp = uploadedFileInfo.value ? `${uploadedFileInfo.value.name}:${uploadedFileInfo.value.size}` : ''
+  const selectedFp = [...selectedDatasources.value].sort().join(',')
+  const combinedFp = `ds:${datasetFp}|up:${uploadFp}|sel:${selectedFp}`
+
+  if (remoteDataSyncMap.value[localSessionId] === combinedFp) return
+
+  // 1) 先上传主数据源（无 append）
+  if (wantDataset) {
+    const csv = chartPayloadToCsv(dataStore.payload!)
+    const fileNameBase = dataStore.datasets.find((d) => d.id === dataStore.activeDatasetId)?.name || 'dataset_snapshot'
+    const csvFile = new File([csv], `${fileNameBase}.csv`, { type: 'text/csv' })
+    const fd = new FormData()
+    fd.append('file', csvFile)
+    const resp = await fetch(`${pythonAgentBaseUrl.value}/api/session/${remoteId}/upload`, {
+      method: 'POST',
+      body: fd,
+    })
+    if (!resp.ok) {
+      const body = await resp.text()
+      throw new Error(`远端数据上传失败(${resp.status}): ${body}`)
+    }
+  }
+
+  // 2) 若还选择了手动上传文件，则追加合并
+  if (wantUpload) {
+    const fd = new FormData()
+    fd.append('file', uploadedFileInfo.value!.file)
+    const append = wantDataset ? '?append=true' : ''
+    const resp = await fetch(`${pythonAgentBaseUrl.value}/api/session/${remoteId}/upload${append}`, {
+      method: 'POST',
+      body: fd,
+    })
+    if (!resp.ok) {
+      const body = await resp.text()
+      throw new Error(`手动上传文件同步失败(${resp.status}): ${body}`)
+    }
+  }
+
+  remoteDataSyncMap.value[localSessionId] = combinedFp
+  saveRemoteDataSyncMap()
+}
+
+function setDatasourceSelected(source: DatasourceChoice, checked: boolean) {
+  const exists = selectedDatasources.value.includes(source)
+  if (checked && !exists) {
+    selectedDatasources.value.push(source)
+  } else if (!checked && exists) {
+    selectedDatasources.value = selectedDatasources.value.filter((x) => x !== source)
+  }
+}
+
+async function syncRemoteSessionModel(modelId: string) {
+  if (!pythonAgentBaseUrl.value || !pythonSessionId.value || !modelId) return
+
+  const response = await fetch(`${pythonAgentBaseUrl.value}/api/session/${pythonSessionId.value}/model`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: modelId }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`同步模型失败: ${response.status}`)
+  }
+}
+
+async function readSseResponse(
+  response: Response,
+  onEvent: (event: AiEvent & { message?: string; [key: string]: unknown }) => void
+) {
+  if (!response.body) {
+    throw new Error('SSE 响应没有 body')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    while (true) {
+      const separatorIndex = buffer.indexOf('\n\n')
+      if (separatorIndex < 0) break
+
+      const block = buffer.slice(0, separatorIndex).trim()
+      buffer = buffer.slice(separatorIndex + 2)
+
+      if (!block) continue
+
+      const dataLines = block
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.replace(/^data:\s?/, ''))
+
+      if (dataLines.length === 0) continue
+
+      const raw = dataLines.join('\n').trim()
+      if (!raw) continue
+
+      try {
+        onEvent(JSON.parse(raw))
+      } catch (error) {
+        console.warn('[AIAnalysis] failed to parse SSE event:', raw, error)
+      }
+    }
+  }
+}
 
 function saveModel(configId: string) {
   const cfg = modelConfigs.value.find((m) => m.id === configId)
@@ -191,62 +530,362 @@ function resetToDefaults() {
   selectedModelId.value = modelConfigs.value[0]?.id || ''
   ElMessage.success('已恢复默认模型配置')
 }
+
+// ────────────────────────────────────────────────────────────
+// 消息处理
+// ────────────────────────────────────────────────────────────
+
+async function handleSendMessage(message: string, command = '') {
+  if (!selectedModel.value) {
+    ElMessage.warning('请先选择一个模型')
+    return
+  }
+
+  if (!pythonAgentBaseUrl.value || !pythonSessionId.value) {
+    await bootstrapPythonAgent()
+    if (sessionStore.currentSessionId) {
+      await bindRemoteSessionForLocal(sessionStore.currentSessionId)
+    }
+  }
+
+  if (!pythonAgentBaseUrl.value || !pythonSessionId.value) {
+    ElMessage.warning('Python Agent 尚未就绪')
+    return
+  }
+
+  try {
+    await syncRemoteSessionModel(selectedModelId.value)
+    await ensureRemoteDatasourceBound(sessionStore.currentSessionId)
+  } catch (error) {
+    console.error('[AIAnalysis] preflight sync failed:', error)
+    ElMessage.warning(`数据预检查失败: ${error instanceof Error ? error.message : '未知错误'}`)
+  }
+
+  // 添加用户消息
+  const userDisplayMessage = command ? `/${command} ${message}`.trim() : message
+  sessionStore.addMessage('user', userDisplayMessage)
+
+  isStreaming.value = true
+  try {
+    const assistantMsg = sessionStore.addMessage('assistant', '', 'text_delta')
+    streamAbortController.value = new AbortController()
+
+    const response = await fetch(`${pythonAgentBaseUrl.value}/api/session/${pythonSessionId.value}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, command }),
+      signal: streamAbortController.value.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(`聊天请求失败: ${response.status}`)
+    }
+
+    await readSseResponse(response, (event) => {
+      if (event.type === 'text_delta' && typeof event.content === 'string') {
+        sessionStore.appendToMessage(assistantMsg.id, event.content)
+      } else if (event.type === 'text' && typeof event.content === 'string') {
+        if (!sessionStore.currentSession?.messages.find((m) => m.id === assistantMsg.id)?.content) {
+          sessionStore.appendToMessage(assistantMsg.id, event.content)
+        }
+        sessionStore.updateMessage(assistantMsg.id, { type: 'text' })
+      } else if (event.type === 'reasoning' && typeof event.content === 'string') {
+        sessionStore.addMessage('assistant', event.content, 'thinking')
+      } else if (event.type === 'tool_start') {
+        sessionStore.addMessage('assistant', '', 'tool_start', {
+          toolName: typeof event.tool === 'string' ? event.tool : '工具调用',
+          display: typeof event.display === 'string' ? event.display : '执行中',
+        })
+      } else if (event.type === 'tool_result') {
+        const resultText = typeof event.content === 'string' ? event.content : JSON.stringify(event)
+        sessionStore.addMessage('assistant', resultText, 'text', {
+          display: '工具执行结果',
+        })
+      } else if (event.type === 'code_block' && typeof event.content === 'string') {
+        sessionStore.addMessage('assistant', event.content, 'code_block')
+      } else if (event.type === 'chart_ref' && typeof event.chart_id === 'string') {
+        void fetch(`${pythonAgentBaseUrl.value}/api/chart/${event.chart_id}`)
+          .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`图表拉取失败: ${r.status}`))))
+          .then((html) => {
+            sessionStore.addMessage('assistant', html, 'chart_html', { chartId: event.chart_id })
+          })
+          .catch((error) => {
+            sessionStore.addMessage('assistant', String(error), 'error', { error: String(error) })
+          })
+      } else if (event.type === 'usage') {
+        const inputTokens = Number((event as Record<string, unknown>).prompt_tokens || 0)
+        const outputTokens = Number((event as Record<string, unknown>).completion_tokens || 0)
+        const sessionTotalInput = Number((event as Record<string, unknown>).session_total_input || 0)
+        const sessionTotalOutput = Number((event as Record<string, unknown>).session_total_output || 0)
+        const contextWindow = Number((event as Record<string, unknown>).context_window || 0)
+        const maxOutputTokens = Number((event as Record<string, unknown>).max_output_tokens || 0)
+
+        tokenStats.value = {
+          inputTokens,
+          outputTokens,
+          sessionTotalInput,
+          sessionTotalOutput,
+          contextWindow,
+          maxOutputTokens,
+        }
+      } else if (event.type === 'stopped') {
+        sessionStore.addMessage('system', '已停止当前生成', 'text')
+        sessionStore.updateMessage(assistantMsg.id, { type: 'text' })
+      } else if (event.type === 'error') {
+        sessionStore.updateMessage(assistantMsg.id, {
+          type: 'error',
+          metadata: { error: String(event.message || '未知错误') },
+        })
+      } else if (event.type === 'done') {
+        sessionStore.updateMessage(assistantMsg.id, { type: 'text' })
+      }
+    })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      sessionStore.addMessage('system', '请求已取消', 'text')
+    } else {
+      ElMessage.error(`发送失败: ${err instanceof Error ? err.message : '未知错误'}`)
+    }
+  } finally {
+    streamAbortController.value = null
+    isStreaming.value = false
+  }
+}
+
+function handleCommand(cmd: string) {
+  const commands: Record<string, string> = {
+    analyze: '请分析这个数据集的主要特征和趋势。',
+    visualize: '请根据数据生成合适的图表。',
+    export: '请将分析结果导出为报告。',
+    clean: '请帮我清洗这个数据集。',
+  }
+
+  const message = commands[cmd] || `执行命令: ${cmd}`
+  handleSendMessage(message)
+}
+
+function handleSendWithCommand(payload: { command: string; message: string }) {
+  const msg = payload.message?.trim() || '请基于当前数据执行该命令并给出结果。'
+  void handleSendMessage(msg, payload.command)
+}
+
+async function handleUploadFile(file: File) {
+  if (!pythonAgentBaseUrl.value || !pythonSessionId.value) {
+    ElMessage.warning('请先启动 AI 分析服务并建立会话')
+    return
+  }
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const resp = await fetch(
+      `${pythonAgentBaseUrl.value}/api/session/${pythonSessionId.value}/upload`,
+      { method: 'POST', body: formData }
+    )
+    if (!resp.ok) {
+      const body = await resp.text()
+      throw new Error(`上传失败(${resp.status}): ${body}`)
+    }
+    // 标记当前 session 的数据同步状态已失效（强制下次重新上传当前数据集）
+    const localSessionId = sessionStore.currentSessionId
+    if (localSessionId) {
+      delete remoteDataSyncMap.value[localSessionId]
+      saveRemoteDataSyncMap()
+    }
+    uploadedFileInfo.value = { name: file.name, size: file.size, file }
+    setDatasourceSelected('upload', true)
+    ElMessage.success(`文件「${file.name}」已上传至当前会话`)
+  } catch (e: unknown) {
+    ElMessage.error(e instanceof Error ? e.message : '文件上传失败')
+  }
+}
+
+async function handleStopStream() {
+  if (pythonAgentBaseUrl.value && pythonSessionId.value) {
+    try {
+      await fetch(`${pythonAgentBaseUrl.value}/api/session/${pythonSessionId.value}/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+    } catch (error) {
+      console.warn('[AIAnalysis] stop stream failed:', error)
+    }
+  }
+
+  streamAbortController.value?.abort()
+  streamAbortController.value = null
+  isStreaming.value = false
+  ElMessage.info('已停止生成')
+}
+
+function handleClearChat() {
+  sessionStore.clearSessionHistory()
+}
 </script>
 
 <template>
-  <div class="ai-analysis-view">
-    <div class="ai-sidebar">
-      <el-card class="panel-card" shadow="never">
-        <template #header>
-          <div class="panel-title">AI智能分析</div>
-        </template>
+  <div class="ai-analysis-container">
+    <!-- 左侧：会话侧边栏 + 模型选择 -->
+    <aside :class="['ai-sidebar', { collapsed: sidebarCollapsed }]">
+      <div v-if="sidebarCollapsed" class="sidebar-collapsed-only" title="展开" @click="sidebarCollapsed = !sidebarCollapsed">
+        ›
+      </div>
 
-        <div class="model-label">模型</div>
-        <div class="model-select-row">
-          <div class="model-cards-container">
-            <div
-              v-for="m in enabledModels"
-              :key="m.id"
-              :class="['model-card-button', { active: selectedModelId === m.id }]"
-              @click="selectedModelId = m.id"
-            >
-              <div class="model-card-name">{{ m.displayName }}</div>
-              <div class="model-card-badge">✓</div>
+      <div v-else class="sidebar-header">
+        <div class="sidebar-header-title">AI 分析</div>
+        <el-button link class="sidebar-collapse-btn" @click="sidebarCollapsed = !sidebarCollapsed">
+          <el-icon>
+            <component :is="ArrowLeft" />
+          </el-icon>
+        </el-button>
+      </div>
+
+      <div v-show="!sidebarCollapsed" class="sidebar-body">
+        <!-- 数据源卡片 -->
+        <el-card class="panel-card datasource-panel-card" shadow="never">
+          <template #header>
+            <div class="panel-header">
+              <div class="panel-title">数据源</div>
+              <el-button link class="panel-collapse-btn" @click="datasourceCollapsed = !datasourceCollapsed">
+                <el-icon><component :is="datasourceCollapsed ? ArrowDown : ArrowUp" /></el-icon>
+              </el-button>
             </div>
+          </template>
+          <div v-show="!datasourceCollapsed" class="datasource-panel-body">
+            <!-- 当前 BI 数据集 -->
+            <div class="ds-section-label">选择发送给 AI 的数据源</div>
+
+            <!-- 只有一个数据源时直接显示，都存在时显示 checkbox -->
+            <div v-if="dataStore.hasData" :class="['ds-item', { 'ds-item--active': !uploadedFileInfo || selectedDatasources.includes('dataset') }]">
+              <el-checkbox
+                v-if="uploadedFileInfo"
+                :model-value="selectedDatasources.includes('dataset')"
+                @change="(v: boolean) => setDatasourceSelected('dataset', v)"
+              />
+              <el-icon class="ds-icon"><DataLine /></el-icon>
+              <div class="ds-info">
+                <div class="ds-name">{{ dataStore.datasets.find(d => d.id === dataStore.activeDatasetId)?.name || dataStore.activeDatasetId }}</div>
+                <div class="ds-meta">{{ dataStore.payload?.total_rows?.toLocaleString() }} 行 · {{ dataStore.columnNames.length }} 列</div>
+              </div>
+              <el-tag size="small" type="success">BI数据</el-tag>
+            </div>
+            <div v-else class="ds-empty">未加载数据集，请前往「数据载入」页面</div>
+
+            <!-- 手动上传的文件 -->
+            <div v-if="uploadedFileInfo" :class="['ds-item', { 'ds-item--active': selectedDatasources.includes('upload') }]" style="margin-top: 6px">
+              <el-checkbox
+                v-if="dataStore.hasData"
+                :model-value="selectedDatasources.includes('upload')"
+                @change="(v: boolean) => setDatasourceSelected('upload', v)"
+              />
+              <el-icon class="ds-icon"><Document /></el-icon>
+              <div class="ds-info">
+                <div class="ds-name">{{ uploadedFileInfo.name }}</div>
+                <div class="ds-meta">{{ (uploadedFileInfo.size / 1024).toFixed(1) }} KB · 已上传</div>
+              </div>
+              <el-button
+                link
+                size="small"
+                style="margin-left: auto"
+                @click="uploadedFileInfo = null; selectedDatasources = selectedDatasources.filter((x) => x !== 'upload')"
+              >×</el-button>
+            </div>
+            <div v-else class="ds-empty" style="margin-top: 6px">点击输入框左上角 <el-icon style="vertical-align: middle"><DocumentCopy /></el-icon> 可额外上传文件</div>
           </div>
-          <el-button class="model-settings-btn" circle @click="settingsVisible = true">
-            <el-icon><Setting /></el-icon>
-          </el-button>
-        </div>
+        </el-card>
 
-        <el-alert
-          v-if="!selectedModel"
-          type="warning"
-          :closable="false"
-          title="请先配置并启用一个模型"
-        />
-        <el-descriptions v-else :column="1" size="small" border class="model-info-table">
-          <el-descriptions-item label="模型名称">{{ selectedModel.displayName }}</el-descriptions-item>
-          <el-descriptions-item label="Model ID">{{ selectedModel.model }}</el-descriptions-item>
-          <el-descriptions-item label="Base URL">{{ selectedModel.baseUrl }}</el-descriptions-item>
-          <el-descriptions-item label="上下文窗口">{{ selectedModel.contextWindow ?? '-' }}</el-descriptions-item>
-          <el-descriptions-item label="最大输出">{{ selectedModel.maxOutputTokens ?? '-' }}</el-descriptions-item>
-          <el-descriptions-item label="思考模式">{{ selectedModel.enableThinking ? '启用' : '关闭' }}</el-descriptions-item>
-        </el-descriptions>
-      </el-card>
-    </div>
-
-    <div class="ai-main">
-      <el-card class="panel-card" shadow="never">
+        <el-card class="panel-card model-panel-card" shadow="never">
         <template #header>
-          <div class="panel-title">对话分析</div>
+          <div class="panel-header">
+            <div class="panel-title">模型配置</div>
+            <el-button link class="panel-collapse-btn" @click="modelConfigCollapsed = !modelConfigCollapsed">
+              <el-icon>
+                <component :is="modelConfigCollapsed ? ArrowDown : ArrowUp" />
+              </el-icon>
+            </el-button>
+          </div>
         </template>
-        <div class="placeholder">
-          <h3>AI 分析会话区</h3>
-          <p>已选择模型后，可在此区域继续接入会话分析、MCP 工具调用和结果展示流程。</p>
-        </div>
-      </el-card>
-    </div>
+
+          <div v-show="!modelConfigCollapsed" class="model-panel-body">
+            <!-- 模型选择 -->
+            <div class="model-label">模型</div>
+            <div class="model-select-row">
+              <div class="model-cards-container">
+                <div
+                  v-for="m in enabledModels"
+                  :key="m.id"
+                  :class="['model-card-button', { active: selectedModelId === m.id }]"
+                  @click="selectModel(m.id)"
+                >
+                  <div class="model-card-name">{{ m.displayName }}</div>
+                  <div class="model-card-badge">✓</div>
+                </div>
+              </div>
+              <el-button class="model-settings-btn" circle @click="settingsVisible = true">
+                <el-icon><Setting /></el-icon>
+              </el-button>
+            </div>
+
+            <!-- 选中模型信息 -->
+            <el-alert
+              v-if="!selectedModel"
+              type="warning"
+              :closable="false"
+              title="请先配置并启用一个模型"
+              class="model-alert"
+            />
+            <el-descriptions v-else :column="1" size="small" border class="model-info-table">
+              <el-descriptions-item label="模型名称">{{ selectedModel.displayName }}</el-descriptions-item>
+              <el-descriptions-item label="Model ID">{{ selectedModel.model }}</el-descriptions-item>
+              <el-descriptions-item label="Base URL">{{ selectedModel.baseUrl }}</el-descriptions-item>
+              <el-descriptions-item label="上下文窗口">{{ selectedModel.contextWindow ?? '-' }}</el-descriptions-item>
+              <el-descriptions-item label="最大输出">{{ selectedModel.maxOutputTokens ?? '-' }}</el-descriptions-item>
+              <el-descriptions-item label="思考模式">{{ selectedModel.enableThinking ? '启用' : '关闭' }}</el-descriptions-item>
+            </el-descriptions>
+          </div>
+        </el-card>
+
+        <!-- 会话列表 -->
+        <el-card :class="['panel-card', 'session-panel-card', { collapsed: sessionListCollapsed }]" shadow="never">
+          <template #header>
+            <div class="panel-header">
+              <div class="panel-title">对话列表</div>
+              <el-button link class="panel-collapse-btn" @click="sessionListCollapsed = !sessionListCollapsed">
+                <el-icon>
+                  <component :is="sessionListCollapsed ? ArrowDown : ArrowUp" />
+                </el-icon>
+              </el-button>
+            </div>
+          </template>
+          <div v-show="!sessionListCollapsed" class="session-panel-body">
+            <AiSessionSidebar />
+          </div>
+        </el-card>
+      </div>
+    </aside>
+
+    <!-- 右侧：消息流 + 输入框 -->
+    <main class="ai-main">
+      <div class="chat-area">
+        <!-- 消息流 -->
+        <AiMessageStream
+          :messages="currentSession?.messages || []"
+          :is-streaming="isStreaming"
+        />
+
+        <!-- 消息输入框 -->
+        <AiMessageInput
+          :is-sending="isStreaming"
+          :token-stats="tokenStats"
+          @send="handleSendMessage"
+          @send-with-command="handleSendWithCommand"
+          @command="handleCommand"
+          @stop="handleStopStream"
+          @clear="handleClearChat"
+          @upload-file="handleUploadFile"
+        />
+      </div>
+    </main>
 
     <el-dialog v-model="settingsVisible" title="模型参数配置" width="600px" top="6vh">
       <div class="settings-scroll">
@@ -329,30 +968,224 @@ function resetToDefaults() {
 </template>
 
 <style scoped>
-.ai-analysis-view {
+.ai-analysis-container {
   height: 100%;
   display: flex;
   gap: 12px;
+  background-color: var(--el-bg-color);
 }
 
 .ai-sidebar {
-  width: 340px;
+  width: 300px;
   min-width: 300px;
-  max-width: 380px;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  transition: width 0.24s ease, min-width 0.24s ease, max-width 0.24s ease;
+}
+
+.ai-sidebar.collapsed {
+  width: 28px;
+  min-width: 28px;
+  max-width: 28px;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 0 8px;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-light);
+  flex: 0 0 auto;
+}
+
+.datasource-panel-body {
+  font-size: 13px;
+}
+
+.ds-section-label {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 6px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ds-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--el-fill-color);
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+.ds-item--active {
+  border-color: var(--el-color-success-light-5);
+  background: var(--el-color-success-light-9);
+}
+
+.ds-icon {
+  font-size: 16px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+
+.ds-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ds-name {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--el-text-color-primary);
+}
+
+.ds-meta {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
+}
+
+.ds-empty {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  padding: 4px 2px;
+  line-height: 1.5;
+}
+
+.sidebar-collapsed-only {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding-top: 10px;
+  cursor: pointer;
+  color: var(--el-text-color-secondary);
+  font-size: 24px;
+  line-height: 1;
+  height: 100%;
+  user-select: none;
+}
+
+.sidebar-collapsed-only:hover {
+  color: var(--el-color-primary);
+}
+
+.sidebar-header-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-collapse-btn {
+  padding: 0;
+  min-height: 0;
+}
+
+.sidebar-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 0 0 auto;
+  overflow: visible;
+  padding-right: 2px;
 }
 
 .ai-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-area {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
 }
 
 .panel-card {
-  height: 100%;
+  height: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-card :deep(.el-card__body) {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.datasource-panel-body {
+  min-height: 0;
+}
+
+.model-panel-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.model-panel-card {
+  flex: 0 0 auto;
+}
+
+.session-panel-card {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.session-panel-card.collapsed {
+  flex: 0 0 auto;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .panel-title {
   font-size: 15px;
   font-weight: 700;
+}
+
+.panel-collapse-btn {
+  padding: 0;
+  min-height: 0;
+}
+
+.panel-collapse-btn :deep(.el-icon) {
+  font-size: 14px;
+}
+
+.session-panel-body {
+  overflow: visible;
+}
+
+.model-alert {
+  margin-top: 8px;
 }
 
 .model-label {
@@ -366,6 +1199,7 @@ function resetToDefaults() {
   display: flex;
   gap: 10px;
   align-items: flex-start;
+  margin-bottom: 12px;
 }
 
 .model-cards-container {
@@ -387,17 +1221,17 @@ function resetToDefaults() {
   align-items: center;
   justify-content: space-between;
   position: relative;
-}
 
-.model-card-button:hover {
-  border-color: var(--el-color-primary-light-3);
-  background-color: var(--el-color-primary-light-9);
-}
+  &:hover {
+    border-color: var(--el-color-primary-light-3);
+    background-color: var(--el-color-primary-light-9);
+  }
 
-.model-card-button.active {
-  border-color: var(--el-color-primary);
-  background-color: var(--el-color-primary-light-9);
-  box-shadow: 0 0 0 2px rgba(94, 124, 224, 0.1);
+  &.active {
+    border-color: var(--el-color-primary);
+    background-color: var(--el-color-primary-light-9);
+    box-shadow: 0 0 0 2px rgba(94, 124, 224, 0.1);
+  }
 }
 
 .model-card-name {
@@ -436,15 +1270,6 @@ function resetToDefaults() {
   margin-top: 4px;
 }
 
-.placeholder {
-  min-height: 220px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  color: var(--el-text-color-regular);
-}
-
 .settings-scroll {
   max-height: 70vh;
   overflow: auto;
@@ -473,7 +1298,7 @@ function resetToDefaults() {
 }
 
 @media (max-width: 980px) {
-  .ai-analysis-view {
+  .ai-analysis-container {
     flex-direction: column;
   }
 
@@ -481,6 +1306,23 @@ function resetToDefaults() {
     width: 100%;
     min-width: 0;
     max-width: none;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--el-border-color);
+  border-radius: 3px;
+
+  &:hover {
+    background: var(--el-border-color-darker);
   }
 }
 </style>

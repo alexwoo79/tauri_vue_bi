@@ -1,5 +1,9 @@
 SHELL := /bin/bash
 
+PY_AGENT_DIR := Data-Analysis-Agent
+PY_VENV_DIR := $(PY_AGENT_DIR)/.venv
+PYTHON_BIN ?= $(abspath $(PY_VENV_DIR)/bin/python)
+
 # ── 颜色输出 ──────────────────────────────────────────────────────────────────
 BOLD  := \033[1m
 RESET := \033[0m
@@ -8,7 +12,7 @@ CYAN  := \033[36m
 YELLOW:= \033[33m
 
 .PHONY: help install dev build bundle dmg test test-rust test-ts lint fmt clean \
-	check-deps icon update-deps release-check release-tag release-tag-fix release-push release
+	check-deps python-setup python-verify icon update-deps release-check release-tag release-tag-fix release-push release
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 默认目标：帮助信息
@@ -17,6 +21,8 @@ help:
 	@printf "$(BOLD)tauri-vue-bi Makefile$(RESET)\n\n"
 	@printf "$(CYAN)开发$(RESET)\n"
 	@printf "  make install      安装前端依赖 (npm ci)\n"
+	@printf "  make python-setup 使用 uv 初始化 Python 环境（Data-Analysis-Agent/.venv）\n"
+	@printf "  make python-verify 验证 Python 解释器和关键依赖\n"
 	@printf "  make dev          启动开发模式（Tauri + Vite 热重载）\n"
 	@printf "\n$(CYAN)构建 & 打包$(RESET)\n"
 	@printf "  make build        构建前端（vite build + vue-tsc 类型检查）\n"
@@ -51,8 +57,30 @@ check-deps:
 	@command -v npm     >/dev/null 2>&1 && printf "  $(GREEN)✔$(RESET) npm     $$(npm --version)\n"     || printf "  ✘ npm 未安装\n"
 	@command -v rustc   >/dev/null 2>&1 && printf "  $(GREEN)✔$(RESET) rustc   $$(rustc --version)\n"  || printf "  ✘ rustc 未安装\n"
 	@command -v cargo   >/dev/null 2>&1 && printf "  $(GREEN)✔$(RESET) cargo   $$(cargo --version)\n"  || printf "  ✘ cargo 未安装\n"
+	@command -v uv      >/dev/null 2>&1 && printf "  $(GREEN)✔$(RESET) uv      $$(uv --version | head -n 1)\n" || printf "  $(YELLOW)!$(RESET) uv 未安装（推荐用于 Python 环境管理）\n"
 	@command -v tauri   >/dev/null 2>&1 && printf "  $(GREEN)✔$(RESET) tauri   $$(tauri --version)\n"  || \
 	  (npx tauri --version >/dev/null 2>&1 && printf "  $(GREEN)✔$(RESET) tauri   (via npx)\n"         || printf "  $(YELLOW)!$(RESET) tauri CLI 未找到（可通过 npm run tauri 调用）\n")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Python 环境（uv + .venv）
+# ─────────────────────────────────────────────────────────────────────────────
+python-setup:
+	@printf "$(BOLD)初始化 Python 环境（uv）...$(RESET)\n"
+	@command -v uv >/dev/null 2>&1 || (printf "$(YELLOW)!$(RESET) 未找到 uv，请先安装 uv 后再执行\n" && exit 1)
+	@test -f $(PY_AGENT_DIR)/pyproject.toml || (printf "$(YELLOW)!$(RESET) 缺少 $(PY_AGENT_DIR)/pyproject.toml\n" && exit 1)
+	uv sync --project $(PY_AGENT_DIR)
+	@test -x "$(PYTHON_BIN)" || (printf "$(YELLOW)!$(RESET) 初始化后仍未找到解释器: $(PYTHON_BIN)\n" && exit 1)
+	@printf "  $(GREEN)✔$(RESET) Python 环境已就绪: $(PYTHON_BIN)\n"
+
+python-verify:
+	@printf "$(BOLD)验证 Python 环境...$(RESET)\n"
+	@if [ ! -x "$(PYTHON_BIN)" ]; then \
+	  printf "  $(YELLOW)!$(RESET) 未找到解释器 $(PYTHON_BIN)，尝试自动初始化...\n"; \
+	  $(MAKE) --no-print-directory python-setup; \
+	fi
+	@test -x "$(PYTHON_BIN)" || (printf "$(YELLOW)!$(RESET) 无法使用 Python 解释器: $(PYTHON_BIN)\n" && exit 1)
+	@"$(PYTHON_BIN)" --version
+	@"$(PYTHON_BIN)" -c "import flask, flask_cors, pandas, openpyxl, sqlalchemy, requests; print('Python deps OK: flask/flask_cors/pandas/openpyxl/sqlalchemy/requests')"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 依赖安装
@@ -68,9 +96,9 @@ update-deps:
 # ─────────────────────────────────────────────────────────────────────────────
 # 开发模式
 # ─────────────────────────────────────────────────────────────────────────────
-dev:
+dev: python-verify
 	@printf "$(BOLD)启动 Tauri 开发模式（Vite 热重载 + Rust 增量编译）...$(RESET)\n"
-	npm run tauri -- dev
+	PYTHON_BIN="$(PYTHON_BIN)" npm run tauri -- dev
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 构建

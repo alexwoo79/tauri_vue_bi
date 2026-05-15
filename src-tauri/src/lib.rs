@@ -28,6 +28,7 @@ use crate::commands::{
     loader::{get_dataframe_info, load_file, load_files, load_paths_as_datasets},
     melt::melt_data,
     merge::{concat_datasets, concat_paths, join_datasets},
+    python_agent::{python_agent_health, python_agent_status, start_python_agent, stop_python_agent},
     pivot::pivot_data,
     save::save_file,
     time_analysis::{
@@ -80,6 +81,10 @@ pub fn run() {
             time_rolling_avg,
             time_growth_rate,
             time_fill_missing,
+            start_python_agent,
+            stop_python_agent,
+            python_agent_status,
+            python_agent_health,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
