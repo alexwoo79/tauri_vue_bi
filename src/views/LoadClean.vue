@@ -30,6 +30,11 @@ import { usePathUpload } from '../composables/usePathUpload'
 const dataStore = useDataStore()
 const upload = usePathUpload()
 
+type ViewMode = 'all' | 'load' | 'clean'
+const props = withDefaults(defineProps<{ mode?: ViewMode }>(), {
+  mode: 'all',
+})
+
 // ─── 状态 ─────────────────────────────────────────────────────────────────────
 
 const filePaths = ref<string[]>([])
@@ -41,10 +46,40 @@ const loading = ref(false)
 const loadNotices = ref<string[]>([])
 const selectedDatasetId = ref('')
 const childDatasetName = ref('')
+const sourceType = ref<'file' | 'sql' | 'gsheets' | 'api'>('file')
+
+const sqlConnectionString = ref('')
+const sqlQuery = ref('SELECT * FROM your_table LIMIT 1000')
+const sqlDatasetName = ref('')
+
+const gsheetSpreadsheet = ref('')
+const gsheetGid = ref('')
+const gsheetProxyUrl = ref('')
+const gsheetDatasetName = ref('')
+
+const GSHEET_PROXY_STORAGE_KEY = 'bi.datasource.gsheet.proxyUrl'
+
+const apiUrl = ref('')
+const apiAuthType = ref<'none' | 'bearer' | 'api_key'>('none')
+const apiAuthValue = ref('')
+const apiDatasetName = ref('')
 
 watch(headerRow, (v) => {
   if (v < 0) {
     lockHeaderRow.value = false
+  }
+})
+
+watch(gsheetProxyUrl, (val) => {
+  try {
+    const cleaned = val.trim()
+    if (cleaned) {
+      window.localStorage.setItem(GSHEET_PROXY_STORAGE_KEY, cleaned)
+    } else {
+      window.localStorage.removeItem(GSHEET_PROXY_STORAGE_KEY)
+    }
+  } catch {
+    // Ignore persistence errors so datasource loading is not blocked.
   }
 })
 
@@ -112,6 +147,15 @@ const rowFilterOpOptions: { label: string; value: RowFilterOp }[] = [
   { label: '为空', value: 'is_null' },
   { label: '非空', value: 'not_null' },
 ]
+
+const showLoadSection = computed(() => props.mode === 'all' || props.mode === 'load')
+const showCleanSection = computed(() => props.mode === 'all' || props.mode === 'clean')
+const showExportSection = computed(() => props.mode === 'all' || props.mode === 'clean')
+const panelTitle = computed(() => {
+  if (props.mode === 'load') return '数据加载'
+  if (props.mode === 'clean') return '数据清洗'
+  return '数据处理'
+})
 
 // ─── 计算属性 ─────────────────────────────────────────────────────────────────
 
@@ -244,6 +288,115 @@ async function loadFiles(inputPaths?: string[]) {
   }
 }
 
+async function applyLoadedResult(result: { ok: boolean; data?: ChartPayload; error?: string }, fallbackName?: string) {
+  if (result.ok && result.data) {
+    dataStore.setPayload(result.data)
+    loadNotices.value = result.data.notices ?? []
+    await refreshDatasetList()
+    if (dataStore.datasets.length > 0) {
+      const matched = dataStore.datasets.find((d) => !fallbackName || d.name.includes(fallbackName))
+      const activeId = matched?.id ?? dataStore.datasets[0].id
+      dataStore.setActiveDatasetId(activeId)
+      selectedDatasetId.value = activeId
+    }
+    cleanedPayload.value = null
+    ElMessage.success(`✅ 数据加载成功，共 ${result.data.total_rows} 行（预览 ${result.data.rows.length} 行）`)
+    if (loadNotices.value.length > 0) {
+      ElMessage.warning(`检测到 ${loadNotices.value.length} 项需手工处理，详情见信息栏`)
+    }
+  } else {
+    ElMessage.error(result.error ?? '加载失败')
+  }
+}
+
+async function connectSqlDataset() {
+  if (!sqlConnectionString.value.trim()) {
+    ElMessage.warning('请输入 SQL 连接字符串')
+    return
+  }
+  if (!sqlQuery.value.trim()) {
+    ElMessage.warning('请输入 SQL 查询语句')
+    return
+  }
+
+  loading.value = true
+  loadNotices.value = []
+  try {
+    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('load_sql_dataset', {
+      connectionString: sqlConnectionString.value,
+      query: sqlQuery.value,
+      datasetName: sqlDatasetName.value,
+    })
+    await applyLoadedResult(result, sqlDatasetName.value.trim())
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function connectGoogleSheetDataset() {
+  if (!gsheetSpreadsheet.value.trim()) {
+    ElMessage.warning('请输入 Google Sheets 链接或 ID')
+    return
+  }
+
+  loading.value = true
+  loadNotices.value = []
+  try {
+    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('load_google_sheet_dataset', {
+      spreadsheet: gsheetSpreadsheet.value,
+      gid: gsheetGid.value,
+      proxyUrl: gsheetProxyUrl.value,
+      datasetName: gsheetDatasetName.value,
+    })
+    await applyLoadedResult(result, gsheetDatasetName.value.trim())
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function connectHttpApiDataset() {
+  if (!apiUrl.value.trim()) {
+    ElMessage.warning('请输入 API URL')
+    return
+  }
+
+  loading.value = true
+  loadNotices.value = []
+  try {
+    const result: { ok: boolean; data?: ChartPayload; error?: string } = await invoke('load_http_api_dataset', {
+      url: apiUrl.value,
+      authType: apiAuthType.value,
+      authValue: apiAuthValue.value,
+      datasetName: apiDatasetName.value,
+    })
+    await applyLoadedResult(result, apiDatasetName.value.trim())
+  } catch (e: any) {
+    ElMessage.error(String(e))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function connectBySourceType() {
+  if (sourceType.value === 'file') {
+    await loadFiles()
+    return
+  }
+  if (sourceType.value === 'sql') {
+    await connectSqlDataset()
+    return
+  }
+  if (sourceType.value === 'gsheets') {
+    await connectGoogleSheetDataset()
+    return
+  }
+  await connectHttpApiDataset()
+}
+
 async function refreshDatasetList() {
   try {
     const result: { ok: boolean; data?: DatasetMeta[]; error?: string } = await invoke('list_datasets')
@@ -343,6 +496,14 @@ async function deleteSelectedDataset() {
 }
 
 onMounted(() => {
+  try {
+    const cachedProxy = window.localStorage.getItem(GSHEET_PROXY_STORAGE_KEY)
+    if (cachedProxy && cachedProxy.trim()) {
+      gsheetProxyUrl.value = cachedProxy.trim()
+    }
+  } catch {
+    // Ignore restore errors so page can still initialize.
+  }
   refreshDatasetList()
 })
 
@@ -646,16 +807,27 @@ async function exportFile(format: 'csv' | 'xlsx') {
           <el-card class="panel-card config-unified-card" shadow="never">
             <template #header>
               <div class="panel-header">
-                <span>数据处理</span>
+                <span>{{ panelTitle }}</span>
                 <el-button text class="panel-collapse-btn" title="收起" @click="configCollapsed = true">‹</el-button>
               </div>
             </template>
 
             <!-- ① 数据加载 -->
+            <template v-if="showLoadSection">
             <div class="section-title-row">
               <span class="section-label">① 数据加载</span>
             </div>
             <el-form class="compact-form" label-width="72px" label-position="left" size="small">
+              <el-form-item label="连接方式">
+                <el-radio-group v-model="sourceType">
+                  <el-radio-button label="file">上传 Excel/CSV</el-radio-button>
+                  <el-radio-button label="sql">连接 SQL</el-radio-button>
+                  <el-radio-button label="gsheets">Google Sheets</el-radio-button>
+                  <el-radio-button label="api">自定义 API</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+
+              <template v-if="sourceType === 'file'">
               <el-form-item label="拖拽导入">
                 <div class="drop-zone" :class="{ 'is-drag-over': upload.dragOver, 'is-loading': loading }"
                   @click="selectFile" @dragenter.prevent="upload.onDragEnter" @dragover.prevent="upload.onDragEnter"
@@ -688,9 +860,65 @@ async function exportFile(format: 'csv' | 'xlsx') {
                   type="primary"
                   :loading="loading"
                   :disabled="filePaths.length === 0"
-                  @click="loadFiles()"
+                  @click="connectBySourceType"
                 >{{ dataStore.hasData ? '重新加载' : '加载数据' }}</el-button>
               </el-form-item>
+              </template>
+
+              <template v-else-if="sourceType === 'sql'">
+                <el-form-item label="连接串">
+                  <el-input v-model="sqlConnectionString" placeholder="支持 sqlite:///path.db、mysql://user:pass@host:3306/db、postgresql://user:pass@host:5432/db" />
+                </el-form-item>
+                <el-form-item label="SQL 查询">
+                  <el-input v-model="sqlQuery" type="textarea" :rows="4" placeholder="SELECT * FROM your_table LIMIT 1000" />
+                </el-form-item>
+                <el-form-item label="数据集名">
+                  <el-input v-model="sqlDatasetName" placeholder="可选，留空自动命名" />
+                </el-form-item>
+                <el-form-item class="single-action">
+                  <el-button class="action-btn" type="primary" :loading="loading" @click="connectBySourceType">连接并加载</el-button>
+                </el-form-item>
+              </template>
+
+              <template v-else-if="sourceType === 'gsheets'">
+                <el-form-item label="表格链接">
+                  <el-input v-model="gsheetSpreadsheet" placeholder="Google Sheets URL 或 spreadsheet ID" />
+                </el-form-item>
+                <el-form-item label="工作表GID">
+                  <el-input v-model="gsheetGid" placeholder="可选，指定工作表 gid" />
+                </el-form-item>
+                <el-form-item label="代理地址">
+                  <el-input v-model="gsheetProxyUrl" placeholder="可选，如 http://127.0.0.1:7890" />
+                </el-form-item>
+                <el-form-item label="数据集名">
+                  <el-input v-model="gsheetDatasetName" placeholder="可选，留空自动命名" />
+                </el-form-item>
+                <el-form-item class="single-action">
+                  <el-button class="action-btn" type="primary" :loading="loading" @click="connectBySourceType">连接并加载</el-button>
+                </el-form-item>
+              </template>
+
+              <template v-else>
+                <el-form-item label="API URL">
+                  <el-input v-model="apiUrl" placeholder="https://example.com/data" />
+                </el-form-item>
+                <el-form-item label="认证方式">
+                  <el-select v-model="apiAuthType">
+                    <el-option label="无" value="none" />
+                    <el-option label="Bearer Token" value="bearer" />
+                    <el-option label="API Key (X-API-Key)" value="api_key" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="认证值">
+                  <el-input v-model="apiAuthValue" :placeholder="apiAuthType === 'none' ? '无需填写' : '输入认证值'" />
+                </el-form-item>
+                <el-form-item label="数据集名">
+                  <el-input v-model="apiDatasetName" placeholder="可选，留空自动命名" />
+                </el-form-item>
+                <el-form-item class="single-action">
+                  <el-button class="action-btn" type="primary" :loading="loading" @click="connectBySourceType">连接并加载</el-button>
+                </el-form-item>
+              </template>
 
               <el-divider class="dataset-block-divider" />
 
@@ -715,8 +943,10 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 <el-button class="action-btn" type="success" @click="saveCurrentAsDataset">保存当前到列表</el-button>
               </el-form-item>
             </el-form>
+            </template>
 
             <!-- ② 数据清洗 -->
+            <template v-if="showCleanSection">
             <el-divider class="section-divider" />
             <div class="section-title-row">
               <span class="section-label">② 数据清洗</span>
@@ -859,8 +1089,10 @@ async function exportFile(format: 'csv' | 'xlsx') {
                 </el-button>
               </el-form-item>
             </el-form>
+            </template>
 
             <!-- ↓ 导出数据 -->
+            <template v-if="showExportSection">
             <el-divider class="section-divider" />
             <div class="section-title-row">
               <span class="section-label">↓ 导出数据</span>
@@ -880,6 +1112,7 @@ async function exportFile(format: 'csv' | 'xlsx') {
               </el-form-item>
               <el-text type="info" size="small">导出当前全量数据（非预览行）</el-text>
             </el-form>
+            </template>
           </el-card>
         </div>
 

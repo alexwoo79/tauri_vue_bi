@@ -2,12 +2,14 @@
 // Vue Router 路由配置 (Vue Router Configuration)
 
 import { createRouter, createWebHashHistory } from 'vue-router'
-import LoadClean from '../views/LoadClean.vue'
+import DataLoad from '../views/DataLoad.vue'
+import DataClean from '../views/DataClean.vue'
 import ChartAnalysis from '../views/ChartAnalysis.vue'
 import PivotAnalysis from '../views/PivotAnalysis.vue'
 import GanttAnalysis from '../views/GanttAnalysis.vue'
 import MergeAnalysis from '../views/MergeAnalysis.vue'
 import TimeAnalysis from '../views/TimeAnalysis.vue'
+import AIAnalysis from '../views/AIAnalysis.vue'
 
 const router = createRouter({
   // Tauri 使用 hash 模式路由（避免 file:// 协议下的 404 问题）
@@ -15,13 +17,23 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/load-clean',
+      redirect: '/data-load',
     },
     {
       path: '/load-clean',
-      name: 'load-clean',
-      component: LoadClean,
-      meta: { title: '⬇️ 数据加载与清洗' },
+      redirect: '/data-load',
+    },
+    {
+      path: '/data-load',
+      name: 'data-load',
+      component: DataLoad,
+      meta: { title: '⬇️ 数据加载' },
+    },
+    {
+      path: '/data-clean',
+      name: 'data-clean',
+      component: DataClean,
+      meta: { title: '🧹 数据清洗' },
     },
     {
       path: '/chart-analysis',
@@ -52,6 +64,12 @@ const router = createRouter({
       name: 'time-analysis',
       component: TimeAnalysis,
       meta: { title: '📈 时间序列分析' },
+    },
+    {
+      path: '/ai-analysis',
+      name: 'ai-analysis',
+      component: AIAnalysis,
+      meta: { title: '✨ AI智能分析' },
     },
   ],
 })

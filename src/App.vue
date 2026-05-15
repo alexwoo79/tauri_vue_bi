@@ -11,22 +11,35 @@
 //   └────────┴────────────────────────────────┘
 //
 // 侧边栏菜单项：
-//   1. 数据加载与清洗  → /load-clean
-//   2. 多维透视分析    → /pivot-analysis
-//   3. 数据表合并      → /merge-analysis
-//   4. 图表分析        → /chart-analysis
-//   5. 甘特图分析      → /gantt-analysis
+//   1. 数据加载        → /data-load
+//   2. 数据清洗        → /data-clean
+//   3. 多维透视分析    → /pivot-analysis
+//   4. 数据表合并      → /merge-analysis
+//   5. 图表分析        → /chart-analysis
+//   6. 甘特图分析      → /gantt-analysis
+//   7. 时间序列分析    → /time-analysis
+//   8. AI智能分析      → /ai-analysis
+//
+// 菜单项图标：
+//   1. 数据加载        → Download
+//   2. 数据清洗        → Brush
+//   3. 多维透视分析    → Grid
+//   4. 数据表合并      → Link
+//   5. 图表分析        → DataLine
+//   6. 甘特图分析      → Calendar
+//   7. 时间序列分析    → TrendCharts
+//   8. AI智能分析      → MagicStick
 
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Download, DataLine, Grid, Calendar, Link, TrendCharts } from '@element-plus/icons-vue'
+import { Download, DataLine, Grid, Calendar, Link, TrendCharts, Brush, MagicStick } from '@element-plus/icons-vue'
 import appLogo from './assets/app-logo.png'
 
 const router = useRouter()
 const route = useRoute()
 
 // 当前激活的菜单项（与路由 name 对应）
-const activeMenu = ref<string>((route.name as string) || 'load-clean')
+const activeMenu = ref<string>((route.name as string) || 'data-load')
 const sidebarCollapsed = ref(false)
 
 // 跟随系统暗色模式（可手动切换覆盖）
@@ -38,7 +51,7 @@ const sidebarWidth = computed(() => (sidebarCollapsed.value ? '64px' : '220px'))
 watch(
   () => route.name,
   (name) => {
-    activeMenu.value = (name as string) || 'load-clean'
+    activeMenu.value = (name as string) || 'data-load'
   }
 )
 
@@ -94,11 +107,18 @@ function toggleSidebar() {
       <el-menu :default-active="activeMenu" :collapse="sidebarCollapsed" :collapse-transition="false"
         background-color="var(--el-bg-color-overlay)" text-color="var(--el-text-color-primary)"
         active-text-color="var(--el-color-primary)" class="sidebar-menu" @select="handleMenuSelect">
-        <el-menu-item index="load-clean">
+        <el-menu-item index="data-load">
           <el-icon>
             <Download />
           </el-icon>
-          <template #title>数据加载与清洗</template>
+          <template #title>数据加载</template>
+        </el-menu-item>
+
+        <el-menu-item index="data-clean">
+          <el-icon>
+            <Brush />
+          </el-icon>
+          <template #title>数据清洗</template>
         </el-menu-item>
 
         <el-menu-item index="pivot-analysis">
@@ -135,10 +155,17 @@ function toggleSidebar() {
           </el-icon>
           <template #title>时间序列分析</template>
         </el-menu-item>
+
+        <el-menu-item index="ai-analysis">
+          <el-icon>
+            <MagicStick />
+          </el-icon>
+          <template #title>AI智能分析</template>
+        </el-menu-item>
       </el-menu>
 
       <div class="sidebar-footer" :class="{ collapsed: sidebarCollapsed }">
-        <span>{{ sidebarCollapsed ? 'A26' : 'Alex 2026' }}</span>
+        <span>{{ sidebarCollapsed ? 'Alex' : 'Alex 2026' }}</span>
       </div>
     </el-aside>
 

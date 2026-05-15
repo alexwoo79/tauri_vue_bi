@@ -5,6 +5,7 @@
 pub mod chart;
 pub mod clean;
 pub mod dataset;
+pub mod datasource;
 pub mod gantt;
 pub mod groupby;
 pub mod loader;

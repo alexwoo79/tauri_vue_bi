@@ -72,6 +72,9 @@ rust_xlsxwriter = "0.80"
 uuid = { version = "1", features = ["v4"] }
 # Mutex-guarded global state
 once_cell = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "any", "mysql", "postgres", "sqlite"] }
 
 [profile.release]
 codegen-units = 1
