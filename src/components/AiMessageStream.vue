@@ -4,7 +4,7 @@
  */
 
 <template>
-  <div class="message-stream">
+  <div ref="streamRef" class="message-stream" @scroll.passive="handleStreamScroll">
     <!-- 消息列表 -->
     <div class="messages-container" @click.capture="handleMessageClick">
       <div
@@ -101,8 +101,14 @@
       />
     </el-dialog>
 
-    <!-- 自动滚动到底部 -->
-    <div ref="scrollAnchor"></div>
+    <button
+      v-if="!autoFollowProgress"
+      type="button"
+      class="jump-latest-btn"
+      @click="jumpToLatest"
+    >
+      查看最新进度<span v-if="pendingUpdates > 0"> ({{ pendingUpdates }})</span>
+    </button>
   </div>
 </template>
 
@@ -140,23 +146,56 @@ const props = withDefaults(defineProps<Props>(), {
 })
 const emit = defineEmits<Emits>()
 
-const scrollAnchor = ref<HTMLDivElement>()
+const streamRef = ref<HTMLDivElement>()
 const chartFullscreenVisible = ref(false)
 const fullscreenChartHtml = ref('')
 const dashboardPreviewVisible = ref(false)
 const dashboardPreviewUrl = ref('')
 const dashboardPreviewLoading = ref(false)
 const dashboardPreviewError = ref('')
+const autoFollowProgress = ref(true)
+const pendingUpdates = ref(0)
 let dashboardPreviewTimer: number | null = null
+const BOTTOM_THRESHOLD_PX = 96
 
-// 自动滚动到底部
+function isNearBottom(): boolean {
+  const el = streamRef.value
+  if (!el) return true
+  const distance = el.scrollHeight - (el.scrollTop + el.clientHeight)
+  return distance <= BOTTOM_THRESHOLD_PX
+}
+
+function scrollToBottom(behavior: ScrollBehavior = 'auto') {
+  const el = streamRef.value
+  if (!el) return
+  el.scrollTo({ top: el.scrollHeight, behavior })
+}
+
+function handleStreamScroll() {
+  const nearBottom = isNearBottom()
+  autoFollowProgress.value = nearBottom
+  if (nearBottom) pendingUpdates.value = 0
+}
+
+function jumpToLatest() {
+  autoFollowProgress.value = true
+  pendingUpdates.value = 0
+  nextTick(() => scrollToBottom('smooth'))
+}
+
+// 消息推进时：仅在“跟随模式”下自动贴底；否则只累计未读更新计数
 watch(
-  () => [props.messages.length, props.isStreaming],
+  () => `${props.messages.length}|${props.messages[props.messages.length - 1]?.id || ''}|${props.messages[props.messages.length - 1]?.content?.length || 0}|${props.isStreaming}`,
   async () => {
     await nextTick()
-    scrollAnchor.value?.scrollIntoView({ behavior: 'smooth' })
-  },
-  { deep: true }
+    if (autoFollowProgress.value || isNearBottom()) {
+      scrollToBottom('auto')
+      pendingUpdates.value = 0
+      autoFollowProgress.value = true
+    } else {
+      pendingUpdates.value += 1
+    }
+  }
 )
 
 // 代码高亮（简单实现，后续可集成 highlight.js）
@@ -337,9 +376,29 @@ function emitOutlineAction(msg: AiMessage, action: 'confirm' | 'revise' | 'cance
   flex-direction: column;
   height: 100%;
   overflow-y: auto;
+  position: relative;
   padding: 16px;
   gap: 8px;
   background-color: var(--el-bg-color);
+}
+
+.jump-latest-btn {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  z-index: 20;
+  border: 1px solid var(--el-color-primary-light-5);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--el-color-primary);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.jump-latest-btn:hover {
+  border-color: var(--el-color-primary);
 }
 
 .messages-container {

@@ -3,6 +3,7 @@ use serde::Serialize;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use tauri::Manager;
 use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio::time::timeout;
@@ -100,7 +101,23 @@ fn resolve_python_launch_spec(app_dir: &str) -> PythonLaunchSpec {
     }
 }
 
-fn resolve_app_dir() -> String {
+fn resolve_app_dir(app_handle: Option<&tauri::AppHandle>) -> String {
+    if let Ok(from_env) = env::var("PY_AGENT_DIR") {
+        let env_path = PathBuf::from(&from_env);
+        if env_path.join("app.py").exists() {
+            return env_path.to_string_lossy().to_string();
+        }
+    }
+
+    if let Some(app) = app_handle {
+        if let Ok(resource_dir) = app.path().resource_dir() {
+            let bundled = resource_dir.join("Data-Analysis-Agent");
+            if bundled.join("app.py").exists() {
+                return bundled.to_string_lossy().to_string();
+            }
+        }
+    }
+
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
         .parent()
@@ -122,7 +139,10 @@ fn status_from_runtime(rt: &PythonAgentRuntime, pid: Option<u32>) -> PythonAgent
 }
 
 #[tauri::command]
-pub async fn start_python_agent(port: Option<u16>) -> Result<PythonAgentStatus, String> {
+pub async fn start_python_agent(
+    app_handle: tauri::AppHandle,
+    port: Option<u16>,
+) -> Result<PythonAgentStatus, String> {
     let port = port.unwrap_or(5001);
     let base_url = format!("http://127.0.0.1:{port}");
 
@@ -148,7 +168,7 @@ pub async fn start_python_agent(port: Option<u16>) -> Result<PythonAgentStatus, 
             }
         }
 
-        let app_dir = resolve_app_dir();
+        let app_dir = resolve_app_dir(Some(&app_handle));
         let launch_spec = resolve_python_launch_spec(&app_dir);
         let app_py = PathBuf::from(&app_dir).join("app.py");
 
@@ -231,6 +251,10 @@ pub async fn python_agent_status() -> Result<PythonAgentStatus, String> {
     if rt.base_url.is_empty() {
         rt.port = 5001;
         rt.base_url = format!("http://127.0.0.1:{}", rt.port);
+    }
+
+    if rt.app_dir.is_empty() {
+        rt.app_dir = resolve_app_dir(None);
     }
 
     Ok(status_from_runtime(&rt, pid))

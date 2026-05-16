@@ -3,6 +3,7 @@ SHELL := /bin/bash
 PY_AGENT_DIR := Data-Analysis-Agent
 PY_VENV_DIR := $(PY_AGENT_DIR)/.venv
 PYTHON_BIN ?= $(abspath $(PY_VENV_DIR)/bin/python)
+TAURI_SIDECAR_RES_DIR := src-tauri/resources/Data-Analysis-Agent
 
 # ── 颜色输出 ──────────────────────────────────────────────────────────────────
 BOLD  := \033[1m
@@ -11,8 +12,9 @@ GREEN := \033[32m
 CYAN  := \033[36m
 YELLOW:= \033[33m
 
-.PHONY: help install dev build bundle dmg test test-rust test-ts lint fmt clean \
-	check-deps python-setup python-verify icon update-deps release-check release-tag release-tag-fix release-push release
+.PHONY: help install dev build bundle bundle-ai dmg test test-rust test-ts lint fmt clean \
+	check-deps python-setup python-verify prepare-sidecar verify-sidecar-resources icon update-deps \
+	release-check release-tag release-tag-fix release-push release release-ai
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 默认目标：帮助信息
@@ -26,9 +28,13 @@ help:
 	@printf "  make dev          启动开发模式（Tauri + Vite 热重载）\n"
 	@printf "\n$(CYAN)构建 & 打包$(RESET)\n"
 	@printf "  make build        构建前端（vite build + vue-tsc 类型检查）\n"
+	@printf "  make prepare-sidecar  同步 Python sidecar 到 Tauri resources（排除 .venv/outputs/uploads）\n"
+	@printf "  make verify-sidecar-resources  校验 sidecar 关键文件是否齐全\n"
 	@printf "  make icon         重新生成 Tauri 图标资源（ico/icns/png）\n"
-	@printf "  make bundle       完整打包桌面应用（生成 .dmg/.app/.deb/.exe 等）\n"
+	@printf "  make bundle       完整打包桌面应用（含 sidecar resources）\n"
+	@printf "  make bundle-ai    AI 第一版推荐打包流程（python-verify + sidecar + bundle）\n"
 	@printf "  make dmg          仅构建 macOS DMG 安装包\n"
+	@printf "  make release-ai TAG=tauri-vue-bi-v0.1.0  AI 版发布检查 + 打 tag + 推送\n"
 	@printf "  make release-check 发布前检查（build + test-rust）\n"
 	@printf "  make release-tag TAG=tauri-vue-bi-v0.1.0   创建发布 tag\n"
 	@printf "                    （若 tag 已存在，会给出可选修复命令）\n"
@@ -82,6 +88,29 @@ python-verify:
 	@"$(PYTHON_BIN)" --version
 	@"$(PYTHON_BIN)" -c "import flask, flask_cors, pandas, openpyxl, sqlalchemy, requests; print('Python deps OK: flask/flask_cors/pandas/openpyxl/sqlalchemy/requests')"
 
+prepare-sidecar:
+	@printf "$(BOLD)准备 sidecar 资源目录...$(RESET)\n"
+	@command -v rsync >/dev/null 2>&1 || (printf "$(YELLOW)!$(RESET) 缺少 rsync，请安装后重试\n" && exit 1)
+	@test -f $(PY_AGENT_DIR)/app.py || (printf "$(YELLOW)!$(RESET) 缺少 $(PY_AGENT_DIR)/app.py\n" && exit 1)
+	@mkdir -p $(TAURI_SIDECAR_RES_DIR)
+	rsync -a --delete \
+	  --exclude '.venv' \
+	  --exclude '__pycache__' \
+	  --exclude 'outputs' \
+	  --exclude 'uploads' \
+	  --exclude '*.pyc' \
+	  $(PY_AGENT_DIR)/ $(TAURI_SIDECAR_RES_DIR)/
+	@printf "  $(GREEN)✔$(RESET) sidecar 已同步到 $(TAURI_SIDECAR_RES_DIR)\n"
+
+verify-sidecar-resources:
+	@printf "$(BOLD)校验 sidecar 关键资源...$(RESET)\n"
+	@test -f $(TAURI_SIDECAR_RES_DIR)/app.py || (printf "$(YELLOW)!$(RESET) 缺少 app.py\n" && exit 1)
+	@test -f $(TAURI_SIDECAR_RES_DIR)/pyproject.toml || (printf "$(YELLOW)!$(RESET) 缺少 pyproject.toml\n" && exit 1)
+	@test -f $(TAURI_SIDECAR_RES_DIR)/LLM/chart_rules.yaml || (printf "$(YELLOW)!$(RESET) 缺少 LLM/chart_rules.yaml\n" && exit 1)
+	@test -d $(TAURI_SIDECAR_RES_DIR)/templates || (printf "$(YELLOW)!$(RESET) 缺少 templates 目录\n" && exit 1)
+	@test -d $(TAURI_SIDECAR_RES_DIR)/static || (printf "$(YELLOW)!$(RESET) 缺少 static 目录\n" && exit 1)
+	@printf "  $(GREEN)✔$(RESET) sidecar 关键资源检查通过\n"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 依赖安装
 # ─────────────────────────────────────────────────────────────────────────────
@@ -116,12 +145,15 @@ icon:
 	npm run tauri -- icon src-tauri/icons/icon-source.svg
 
 # 完整打包：前端 build + Rust release 编译 + 平台安装包
-bundle: icon
+bundle: icon prepare-sidecar verify-sidecar-resources
 	@printf "$(BOLD)打包桌面应用（release 模式）...$(RESET)\n"
 	npm run tauri -- build
 
+bundle-ai: python-verify bundle
+	@printf "$(GREEN)✔$(RESET) AI 第一版打包完成\n"
+
 # 仅构建 macOS DMG 安装包
-dmg: icon
+dmg: icon prepare-sidecar verify-sidecar-resources
 	@printf "$(BOLD)构建 macOS DMG 安装包（release 模式）...$(RESET)\n"
 	@uname | grep -q "Darwin" || (printf "$(YELLOW)!$(RESET) 当前非 macOS，无法构建 DMG\n" && exit 1)
 	npm run tauri -- build --bundles dmg
@@ -184,6 +216,9 @@ release-push:
 
 release: release-check release-tag release-push
 	@printf "$(GREEN)✔$(RESET) Release tag 已推送，GitHub Actions 将开始构建并发布多平台安装包\n"
+
+release-ai: python-verify prepare-sidecar verify-sidecar-resources release-check release-tag release-push
+	@printf "$(GREEN)✔$(RESET) AI 版本发布流程完成（含 sidecar 资源校验）\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 测试

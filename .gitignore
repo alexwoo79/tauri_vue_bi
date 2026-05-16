@@ -9,3 +9,7 @@ node_modules/
 .DS_Store
 *.swp
 .vscode/
+
+# Generated sidecar resources (created by make prepare-sidecar)
+src-tauri/resources/Data-Analysis-Agent/*
+!src-tauri/resources/Data-Analysis-Agent/.gitkeep
