@@ -66,7 +66,10 @@ fn command_exists(cmd: &str) -> bool {
 }
 
 fn resolve_python_launch_spec(app_dir: &str) -> PythonLaunchSpec {
+    eprintln!("[Python Agent Debug] Resolving Python interpreter for app_dir: {}", app_dir);
+    
     if let Ok(bin) = env::var("PYTHON_BIN").or_else(|_| env::var("PYTHON_EXECUTABLE")) {
+        eprintln!("[Python Agent Debug] Using env-var Python: {}", bin);
         return PythonLaunchSpec {
             program: bin.clone(),
             args: vec![],
@@ -80,16 +83,22 @@ fn resolve_python_launch_spec(app_dir: &str) -> PythonLaunchSpec {
         PathBuf::from(app_dir).join(".venv").join("bin").join("python")
     };
 
+    eprintln!("[Python Agent Debug] Checking venv interpreter: {}", venv_python.display());
     if venv_python.exists() {
+        eprintln!("[Python Agent Debug] venv interpreter found!");
         let bin = venv_python.to_string_lossy().to_string();
         return PythonLaunchSpec {
             program: bin.clone(),
             args: vec![],
             display: bin,
         };
+    } else {
+        eprintln!("[Python Agent Debug] venv interpreter NOT found at {}", venv_python.display());
     }
 
+    eprintln!("[Python Agent Debug] Checking if 'uv' command available...");
     if command_exists("uv") {
+        eprintln!("[Python Agent Debug] Using 'uv' as fallback");
         return PythonLaunchSpec {
             program: "uv".to_string(),
             args: vec![
@@ -100,6 +109,8 @@ fn resolve_python_launch_spec(app_dir: &str) -> PythonLaunchSpec {
             ],
             display: format!("uv run --project {app_dir} python"),
         };
+    } else {
+        eprintln!("[Python Agent Debug] 'uv' command NOT available");
     }
 
     let fallback = if cfg!(windows) {
@@ -108,6 +119,7 @@ fn resolve_python_launch_spec(app_dir: &str) -> PythonLaunchSpec {
         "python3".to_string()
     };
 
+    eprintln!("[Python Agent Debug] Using system fallback: {}", fallback);
     PythonLaunchSpec {
         program: fallback.clone(),
         args: vec![],
@@ -116,29 +128,43 @@ fn resolve_python_launch_spec(app_dir: &str) -> PythonLaunchSpec {
 }
 
 fn resolve_app_dir(app_handle: Option<&tauri::AppHandle>) -> String {
+    eprintln!("[Python Agent Debug] Resolving app_dir...");
+    
     if let Ok(from_env) = env::var("PY_AGENT_DIR") {
         let env_path = PathBuf::from(&from_env);
+        eprintln!("[Python Agent Debug] Found PY_AGENT_DIR env var: {}", from_env);
         if env_path.join("app.py").exists() {
+            eprintln!("[Python Agent Debug] Using PY_AGENT_DIR: {}", from_env);
             return env_path.to_string_lossy().to_string();
+        } else {
+            eprintln!("[Python Agent Debug] PY_AGENT_DIR exists but no app.py found at: {}", env_path.join("app.py").display());
         }
     }
 
     if let Some(app) = app_handle {
         if let Ok(resource_dir) = app.path().resource_dir() {
             let bundled = resource_dir.join("Data-Analysis-Agent");
+            eprintln!("[Python Agent Debug] Checking bundled resource dir: {}", bundled.display());
             if bundled.join("app.py").exists() {
+                eprintln!("[Python Agent Debug] Using bundled resource dir: {}", bundled.display());
                 return bundled.to_string_lossy().to_string();
+            } else {
+                eprintln!("[Python Agent Debug] Bundled resource dir exists but no app.py: {}", bundled.join("app.py").display());
             }
+        } else {
+            eprintln!("[Python Agent Debug] Failed to get resource_dir from app handle");
         }
+    } else {
+        eprintln!("[Python Agent Debug] No app handle provided");
     }
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir
+    let fallback = manifest_dir
         .parent()
         .map(|p| p.join("Data-Analysis-Agent"))
-        .unwrap_or_else(|| manifest_dir.join("Data-Analysis-Agent"))
-        .to_string_lossy()
-        .to_string()
+        .unwrap_or_else(|| manifest_dir.join("Data-Analysis-Agent"));
+    eprintln!("[Python Agent Debug] Using fallback dev path: {}", fallback.display());
+    fallback.to_string_lossy().to_string()
 }
 
 fn status_from_runtime(rt: &PythonAgentRuntime, pid: Option<u32>) -> PythonAgentStatus {
@@ -191,8 +217,19 @@ pub async fn start_python_agent(
         let launch_spec = resolve_python_launch_spec(&app_dir);
         let app_py = PathBuf::from(&app_dir).join("app.py");
 
+        eprintln!("[Python Agent Debug] app_dir: {}", app_dir);
+        eprintln!("[Python Agent Debug] launch_spec.program: {}", launch_spec.program);
+        eprintln!("[Python Agent Debug] app_py: {}", app_py.display());
+
         if !app_py.exists() {
-            return Err(format!("找不到 Python 启动脚本: {}", app_py.display()));
+            let err_msg = format!(
+                "找不到 Python 启动脚本: {}\n[Debug] app_dir={}, launch_spec={}",
+                app_py.display(),
+                app_dir,
+                launch_spec.display
+            );
+            eprintln!("[Python Agent Error] {}", err_msg);
+            return Err(err_msg);
         }
 
         let mut cmd = Command::new(&launch_spec.program);
@@ -210,12 +247,16 @@ pub async fn start_python_agent(
         }
         cmd.arg(app_py.as_os_str());
 
+        eprintln!("[Python Agent Debug] Spawning: {} (in {})", launch_spec.display, app_dir);
         let child = cmd.spawn().map_err(|e| {
-            format!(
-                "启动 Python Agent 失败: {e}; python={}, app_py={}",
+            let err_msg = format!(
+                "启动 Python Agent 失败: {e}\n[Debug] program={}, app_py={}, cwd={}",
                 launch_spec.display,
-                app_py.display()
-            )
+                app_py.display(),
+                app_dir
+            );
+            eprintln!("[Python Agent Error] {}", err_msg);
+            err_msg
         })?;
 
         rt.port = port;

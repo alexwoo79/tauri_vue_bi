@@ -141,6 +141,17 @@ const pythonAgentBaseUrl = ref('')
 const pythonAgentToken = ref('')
 const pythonSessionId = ref('')
 const pythonAgentReady = ref(false)
+const pythonAgentLoading = ref(false)
+const pythonAgentStatus = ref<{
+  running: boolean
+  port: number
+  base_url: string
+  auth_token: string
+  python_bin: string
+  app_dir: string
+  pid?: number | null
+} | null>(null)
+const pythonServiceCollapsed = ref(false)
 const tokenStats = ref({
   inputTokens: 0,
   outputTokens: 0,
@@ -258,6 +269,7 @@ async function bootstrapPythonAgent() {
 
     pythonAgentBaseUrl.value = status.base_url || ''
     pythonAgentToken.value = status.auth_token || ''
+    pythonAgentStatus.value = status
     pythonAgentReady.value = true
 
     const localSessionId = sessionStore.currentSessionId
@@ -265,8 +277,100 @@ async function bootstrapPythonAgent() {
       await bindRemoteSessionForLocal(localSessionId)
     }
   } catch (error) {
-    console.error('[AIAnalysis] bootstrapPythonAgent failed:', error)
-    ElMessage.warning('Python Agent 启动失败，当前先保留本地模拟模式')
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    console.error('[AIAnalysis] bootstrapPythonAgent failed:', errorMsg)
+    ElMessage.error(`Python Agent 启动失败:\n${errorMsg}`)
+  }
+}
+
+async function startPythonAgent() {
+  pythonAgentLoading.value = true
+  try {
+    const status = await invoke<{
+      running: boolean
+      port: number
+      base_url: string
+      auth_token: string
+      python_bin: string
+      app_dir: string
+      pid?: number | null
+    }>('start_python_agent')
+
+    pythonAgentBaseUrl.value = status.base_url || ''
+    pythonAgentToken.value = status.auth_token || ''
+    pythonAgentStatus.value = status
+    pythonAgentReady.value = true
+
+    ElMessage.success(`Python Agent 已启动 (端口: ${status.port})`)
+
+    const localSessionId = sessionStore.currentSessionId
+    if (localSessionId) {
+      await bindRemoteSessionForLocal(localSessionId)
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    console.error('[AIAnalysis] startPythonAgent failed:', errorMsg)
+    ElMessage.error(`启动失败: ${errorMsg}`)
+  } finally {
+    pythonAgentLoading.value = false
+  }
+}
+
+async function stopPythonAgent() {
+  pythonAgentLoading.value = true
+  try {
+    const status = await invoke<{
+      running: boolean
+      port: number
+      base_url: string
+      auth_token: string
+      python_bin: string
+      app_dir: string
+      pid?: number | null
+    }>('stop_python_agent')
+
+    pythonAgentStatus.value = status
+    pythonAgentReady.value = status.running
+    if (!status.running) {
+      pythonAgentBaseUrl.value = ''
+      pythonAgentToken.value = ''
+    }
+
+    ElMessage.success('Python Agent 已停止')
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    console.error('[AIAnalysis] stopPythonAgent failed:', errorMsg)
+    ElMessage.error(`停止失败: ${errorMsg}`)
+  } finally {
+    pythonAgentLoading.value = false
+  }
+}
+
+async function checkPythonAgentHealth() {
+  pythonAgentLoading.value = true
+  try {
+    const status = await invoke<{
+      running: boolean
+      port: number
+      base_url: string
+      auth_token: string
+      python_bin: string
+      app_dir: string
+      pid?: number | null
+    }>('python_agent_health')
+
+    pythonAgentStatus.value = status
+    if (status.running) {
+      ElMessage.success(`Python Agent 运行正常 (端口: ${status.port}, PID: ${status.pid || 'N/A'})`)
+    } else {
+      ElMessage.warning('Python Agent 未运行')
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    console.error('[AIAnalysis] checkPythonAgentHealth failed:', errorMsg)
+    ElMessage.warning(`检测失败: ${errorMsg}`)
+  } finally {
+    pythonAgentLoading.value = false
   }
 }
 
@@ -1054,7 +1158,7 @@ function handleClearChat() {
             <!-- 模型选择 -->
             <div class="model-label">模型</div>
             <div class="model-select-row">
-              <div class="model-cards-container">
+              <div :class="['model-cards-container', { single: enabledModels.length <= 1 }]">
                 <div
                   v-for="m in enabledModels"
                   :key="m.id"
@@ -1086,6 +1190,80 @@ function handleClearChat() {
               <el-descriptions-item label="最大输出">{{ selectedModel.maxOutputTokens ?? '-' }}</el-descriptions-item>
               <el-descriptions-item label="思考模式">{{ selectedModel.enableThinking ? '启用' : '关闭' }}</el-descriptions-item>
             </el-descriptions>
+          </div>
+        </el-card>
+
+        <!-- Python 服务控制卡片 -->
+        <el-card class="panel-card python-service-panel-card" shadow="never">
+          <template #header>
+            <div class="panel-header">
+              <div class="panel-title">Python 服务</div>
+              <el-button link class="panel-collapse-btn" @click="pythonServiceCollapsed = !pythonServiceCollapsed">
+                <el-icon>
+                  <component :is="pythonServiceCollapsed ? ArrowDown : ArrowUp" />
+                </el-icon>
+              </el-button>
+            </div>
+          </template>
+
+          <div v-show="!pythonServiceCollapsed" class="python-service-panel-body">
+            <!-- 服务状态 - 紧凑显示 -->
+            <div class="service-status-compact">
+              <div class="status-line">
+                <span class="status-label">状态:</span>
+                <el-tag :type="pythonAgentStatus?.running ? 'success' : 'info'" size="small">
+                  {{ pythonAgentStatus?.running ? '运行' : '停止' }}
+                </el-tag>
+                <span v-if="pythonAgentStatus?.running" class="status-info">
+                  <span class="divider">|</span>
+                  <span class="label">端口:</span>
+                  <span class="value">{{ pythonAgentStatus?.port }}</span>
+                </span>
+                <span v-if="pythonAgentStatus?.running && pythonAgentStatus?.pid" class="status-info">
+                  <span class="divider">|</span>
+                  <span class="label">PID:</span>
+                  <span class="value">{{ pythonAgentStatus?.pid }}</span>
+                </span>
+              </div>
+              <div v-if="pythonAgentStatus?.base_url" class="status-line">
+                <span class="label">地址:</span>
+                <span class="value">{{ pythonAgentStatus?.base_url }}</span>
+              </div>
+              <div v-if="pythonAgentStatus?.app_dir" class="status-line status-line-secondary">
+                <span class="label">目录:</span>
+                <span class="value" :title="pythonAgentStatus?.app_dir">{{ pythonAgentStatus?.app_dir.split('/').pop() || pythonAgentStatus?.app_dir }}</span>
+              </div>
+            </div>
+
+            <!-- 控制按钮 - 紧凑排列 -->
+            <div class="service-controls-compact">
+              <el-button
+                :loading="pythonAgentLoading"
+                :disabled="pythonAgentStatus?.running"
+                type="primary"
+                size="small"
+                @click="startPythonAgent"
+              >
+                启动
+              </el-button>
+              <el-button
+                :loading="pythonAgentLoading"
+                :disabled="!pythonAgentStatus?.running"
+                type="danger"
+                size="small"
+                @click="stopPythonAgent"
+              >
+                停止
+              </el-button>
+              <el-button
+                :loading="pythonAgentLoading"
+                type="info"
+                size="small"
+                @click="checkPythonAgentHealth"
+              >
+                检测
+              </el-button>
+            </div>
           </div>
         </el-card>
 
@@ -1436,34 +1614,38 @@ function handleClearChat() {
 }
 
 .model-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--el-text-color-regular);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .model-select-row {
   display: flex;
-  gap: 10px;
+  gap: 6px;
   align-items: flex-start;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .model-cards-container {
   flex: 1;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  gap: 4px;
+}
+
+.model-cards-container.single {
+  grid-template-columns: 1fr;
 }
 
 .model-card-button {
-  height: 64px;
-  padding: 12px 16px;
-  border: 1.5px solid var(--el-border-color);
-  border-radius: 6px;
+  height: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
   background-color: var(--el-fill-color-blank);
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1477,15 +1659,16 @@ function handleClearChat() {
   &.active {
     border-color: var(--el-color-primary);
     background-color: var(--el-color-primary-light-9);
-    box-shadow: 0 0 0 2px rgba(94, 124, 224, 0.1);
+    box-shadow: 0 0 0 1px rgba(94, 124, 224, 0.15);
   }
 }
 
 .model-card-name {
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--el-text-color-primary);
   flex: 1;
+  line-height: 1.2;
 }
 
 .model-card-button.active .model-card-badge {
@@ -1494,23 +1677,29 @@ function handleClearChat() {
 
 .model-card-badge {
   display: none;
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
   background-color: var(--el-color-primary);
   color: white;
   border-radius: 50%;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 9px;
   font-weight: bold;
-  margin-left: 8px;
+  margin-left: 4px;
 }
 
 .model-settings-btn {
-  width: 44px;
-  height: 44px;
-  font-size: 20px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  font-size: 13px;
   border: 1px solid var(--el-border-color);
+  flex: 0 0 30px;
+}
+
+.model-settings-btn :deep(.el-icon) {
+  font-size: 14px;
 }
 
 .model-info-table {
@@ -1570,6 +1759,87 @@ function handleClearChat() {
 
   &:hover {
     background: var(--el-border-color-darker);
+  }
+}
+
+/* Python Service Panel - Compact */
+.python-service-panel-body {
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.service-status-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+  background: var(--el-fill-color);
+  border-radius: 4px;
+  border-left: 3px solid var(--el-color-info);
+}
+
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  flex-wrap: wrap;
+  line-height: 1.4;
+}
+
+.status-line-secondary {
+  color: var(--el-text-color-secondary);
+}
+
+.status-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.divider {
+  color: var(--el-border-color);
+  margin: 0 2px;
+}
+
+.status-label {
+  font-weight: 500;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+}
+
+.label {
+  font-weight: 500;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+}
+
+.value {
+  color: var(--el-text-color-primary);
+  font-family: 'Courier New', monospace;
+  word-break: break-word;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-controls-compact {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+
+  :deep(.el-button) {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+
+  :deep(.el-button span) {
+    font-size: 12px;
   }
 }
 </style>
