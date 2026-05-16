@@ -13,3 +13,11 @@ node_modules/
 # Generated sidecar resources (created by make prepare-sidecar)
 src-tauri/resources/Data-Analysis-Agent/*
 !src-tauri/resources/Data-Analysis-Agent/.gitkeep
+
+# Sidecar runtime artifacts
+Data-Analysis-Agent/.venv/
+Data-Analysis-Agent/outputs/
+Data-Analysis-Agent/uploads/
+Data-Analysis-Agent/**/__pycache__/
+Data-Analysis-Agent/**/*.pyc
+Data-Analysis-Agent/.DS_Store

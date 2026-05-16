@@ -188,7 +188,7 @@ watch(selectedModelId, (id) => {
   window.localStorage.setItem(STORAGE_SELECTED, id)
   sessionStore.setSelectedModel(sessionStore.currentSessionId, id)
   if (pythonAgentReady.value && pythonSessionId.value) {
-    void syncRemoteSessionModel(id)
+    void ensureRemoteModelReady(id)
   }
 })
 
@@ -302,7 +302,7 @@ async function bindRemoteSessionForLocal(localSessionId: string) {
 
   const modelId = sessionStore.getSelectedModel(localSessionId) || selectedModelId.value
   if (modelId) {
-    await syncRemoteSessionModel(modelId)
+    await ensureRemoteModelReady(modelId)
   }
 
   await ensureRemoteDatasourceBound(localSessionId)
@@ -393,15 +393,73 @@ function setDatasourceSelected(source: DatasourceChoice, checked: boolean) {
 async function syncRemoteSessionModel(modelId: string) {
   if (!pythonAgentBaseUrl.value || !pythonSessionId.value || !modelId) return
 
+  const cfg = modelConfigs.value.find((m) => m.id === modelId)
+  const provider = (cfg?.provider || modelId).trim()
+  if (!provider) {
+    throw new Error('模型 provider 为空')
+  }
+
   const response = await fetch(`${pythonAgentBaseUrl.value}/api/session/${pythonSessionId.value}/model`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider: modelId }),
+    body: JSON.stringify({ provider }),
   })
 
   if (!response.ok) {
-    throw new Error(`同步模型失败: ${response.status}`)
+    const body = await response.text()
+    throw new Error(`同步模型失败: ${response.status} ${body}`)
   }
+}
+
+async function syncModelConfigToRemote(modelId: string) {
+  if (!pythonAgentBaseUrl.value || !modelId) return
+
+  const cfg = modelConfigs.value.find((m) => m.id === modelId)
+  if (!cfg) {
+    throw new Error('未找到模型配置')
+  }
+  if (!cfg.apiKey.trim()) {
+    throw new Error(`${cfg.displayName} 的 API Key 为空`)
+  }
+  if (!cfg.baseUrl.trim()) {
+    throw new Error(`${cfg.displayName} 的 API Base URL 为空`)
+  }
+  if (!cfg.model.trim()) {
+    throw new Error(`${cfg.displayName} 的 Model ID 为空`)
+  }
+
+  const provider = (cfg.provider || cfg.id).trim()
+  const response = await fetch(`${pythonAgentBaseUrl.value}/api/models/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider,
+      api_key: cfg.apiKey,
+      base_url: cfg.baseUrl,
+      model: cfg.model,
+      enabled: cfg.enabled,
+      is_custom: cfg.isCustom,
+      context_window: cfg.contextWindow,
+      max_output_tokens: cfg.maxOutputTokens,
+      enable_thinking: cfg.enableThinking,
+    }),
+  })
+
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`同步模型配置失败: ${response.status} ${body}`)
+  }
+
+  const json = (await response.json()) as { provider?: string }
+  const remoteProvider = (json.provider || provider).trim()
+  if (remoteProvider && cfg.provider !== remoteProvider) {
+    cfg.provider = remoteProvider
+  }
+}
+
+async function ensureRemoteModelReady(modelId: string) {
+  await syncModelConfigToRemote(modelId)
+  await syncRemoteSessionModel(modelId)
 }
 
 async function readSseResponse(
@@ -465,6 +523,18 @@ function saveModel(configId: string) {
     ElMessage.warning('API Key 不能为空')
     return
   }
+
+  if (pythonAgentReady.value) {
+    void syncModelConfigToRemote(configId)
+      .then(() => {
+        ElMessage.success(`已保存并同步 ${cfg.displayName} 配置`)
+      })
+      .catch((error) => {
+        ElMessage.warning(`本地已保存，侧车同步失败: ${error instanceof Error ? error.message : '未知错误'}`)
+      })
+    return
+  }
+
   ElMessage.success(`已保存 ${cfg.displayName} 配置`)
 }
 
@@ -568,7 +638,7 @@ async function handleSendMessage(
   }
 
   try {
-    await syncRemoteSessionModel(selectedModelId.value)
+    await ensureRemoteModelReady(selectedModelId.value)
     await ensureRemoteDatasourceBound(sessionStore.currentSessionId)
   } catch (error) {
     console.error('[AIAnalysis] preflight sync failed:', error)
