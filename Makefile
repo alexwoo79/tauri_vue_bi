@@ -12,8 +12,8 @@ GREEN := \033[32m
 CYAN  := \033[36m
 YELLOW:= \033[33m
 
-.PHONY: help install dev build bundle bundle-ai dmg test test-rust test-ts lint fmt clean \
-	check-deps python-setup python-verify prepare-sidecar verify-sidecar-resources icon update-deps \
+.PHONY: help install dev build bundle bundle-ai dmg dmg-ai test test-rust test-ts lint fmt clean \
+	check-deps python-setup python-verify prepare-sidecar prepare-sidecar-runtime verify-sidecar-resources verify-sidecar-runtime icon update-deps \
 	release-check release-tag release-tag-fix release-push release release-ai
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -29,11 +29,14 @@ help:
 	@printf "\n$(CYAN)构建 & 打包$(RESET)\n"
 	@printf "  make build        构建前端（vite build + vue-tsc 类型检查）\n"
 	@printf "  make prepare-sidecar  同步 Python sidecar 到 Tauri resources（排除 .venv/outputs/uploads）\n"
+	@printf "  make prepare-sidecar-runtime  同步 sidecar + .venv 到 Tauri resources（开箱即用）\n"
 	@printf "  make verify-sidecar-resources  校验 sidecar 关键文件是否齐全\n"
+	@printf "  make verify-sidecar-runtime  校验内置 Python 运行时是否存在\n"
 	@printf "  make icon         重新生成 Tauri 图标资源（ico/icns/png）\n"
 	@printf "  make bundle       完整打包桌面应用（含 sidecar resources）\n"
-	@printf "  make bundle-ai    AI 第一版推荐打包流程（python-verify + sidecar + bundle）\n"
+	@printf "  make bundle-ai    AI 第一版推荐打包流程（内置 .venv 运行时）\n"
 	@printf "  make dmg          仅构建 macOS DMG 安装包\n"
+	@printf "  make dmg-ai       构建 macOS DMG（内置 .venv 运行时）\n"
 	@printf "  make release-ai TAG=tauri-vue-bi-v0.1.0  AI 版发布检查 + 打 tag + 推送\n"
 	@printf "  make release-check 发布前检查（build + test-rust）\n"
 	@printf "  make release-tag TAG=tauri-vue-bi-v0.1.0   创建发布 tag\n"
@@ -102,6 +105,20 @@ prepare-sidecar:
 	  $(PY_AGENT_DIR)/ $(TAURI_SIDECAR_RES_DIR)/
 	@printf "  $(GREEN)✔$(RESET) sidecar 已同步到 $(TAURI_SIDECAR_RES_DIR)\n"
 
+prepare-sidecar-runtime: python-verify
+	@printf "$(BOLD)准备 sidecar 资源目录（含内置 Python 运行时）...$(RESET)\n"
+	@command -v rsync >/dev/null 2>&1 || (printf "$(YELLOW)!$(RESET) 缺少 rsync，请安装后重试\n" && exit 1)
+	@test -f $(PY_AGENT_DIR)/app.py || (printf "$(YELLOW)!$(RESET) 缺少 $(PY_AGENT_DIR)/app.py\n" && exit 1)
+	@test -x "$(PYTHON_BIN)" || (printf "$(YELLOW)!$(RESET) 缺少可执行解释器: $(PYTHON_BIN)\n" && exit 1)
+	@mkdir -p $(TAURI_SIDECAR_RES_DIR)
+	rsync -a --delete \
+	  --exclude '__pycache__' \
+	  --exclude 'outputs' \
+	  --exclude 'uploads' \
+	  --exclude '*.pyc' \
+	  $(PY_AGENT_DIR)/ $(TAURI_SIDECAR_RES_DIR)/
+	@printf "  $(GREEN)✔$(RESET) sidecar + .venv 已同步到 $(TAURI_SIDECAR_RES_DIR)\n"
+
 verify-sidecar-resources:
 	@printf "$(BOLD)校验 sidecar 关键资源...$(RESET)\n"
 	@test -f $(TAURI_SIDECAR_RES_DIR)/app.py || (printf "$(YELLOW)!$(RESET) 缺少 app.py\n" && exit 1)
@@ -110,6 +127,17 @@ verify-sidecar-resources:
 	@test -d $(TAURI_SIDECAR_RES_DIR)/templates || (printf "$(YELLOW)!$(RESET) 缺少 templates 目录\n" && exit 1)
 	@test -d $(TAURI_SIDECAR_RES_DIR)/static || (printf "$(YELLOW)!$(RESET) 缺少 static 目录\n" && exit 1)
 	@printf "  $(GREEN)✔$(RESET) sidecar 关键资源检查通过\n"
+
+verify-sidecar-runtime:
+	@printf "$(BOLD)校验内置 Python 运行时...$(RESET)\n"
+	@if [ -x "$(TAURI_SIDECAR_RES_DIR)/.venv/bin/python" ]; then \
+	  printf "  $(GREEN)✔$(RESET) 检测到 Unix 解释器: .venv/bin/python\n"; \
+	elif [ -x "$(TAURI_SIDECAR_RES_DIR)/.venv/Scripts/python.exe" ]; then \
+	  printf "  $(GREEN)✔$(RESET) 检测到 Windows 解释器: .venv/Scripts/python.exe\n"; \
+	else \
+	  printf "$(YELLOW)!$(RESET) 未检测到内置解释器（.venv/bin/python 或 .venv/Scripts/python.exe）\n"; \
+	  exit 1; \
+	fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 依赖安装
@@ -149,12 +177,19 @@ bundle: icon prepare-sidecar verify-sidecar-resources
 	@printf "$(BOLD)打包桌面应用（release 模式）...$(RESET)\n"
 	npm run tauri -- build
 
-bundle-ai: python-verify bundle
-	@printf "$(GREEN)✔$(RESET) AI 第一版打包完成\n"
+bundle-ai: icon prepare-sidecar-runtime verify-sidecar-resources verify-sidecar-runtime
+	@printf "$(BOLD)打包桌面应用（release 模式，内置 Python 运行时）...$(RESET)\n"
+	npm run tauri -- build
+	@printf "$(GREEN)✔$(RESET) AI 第一版打包完成（内置 .venv）\n"
 
 # 仅构建 macOS DMG 安装包
 dmg: icon prepare-sidecar verify-sidecar-resources
 	@printf "$(BOLD)构建 macOS DMG 安装包（release 模式）...$(RESET)\n"
+	@uname | grep -q "Darwin" || (printf "$(YELLOW)!$(RESET) 当前非 macOS，无法构建 DMG\n" && exit 1)
+	npm run tauri -- build --bundles dmg
+
+dmg-ai: icon prepare-sidecar-runtime verify-sidecar-resources verify-sidecar-runtime
+	@printf "$(BOLD)构建 macOS DMG 安装包（内置 Python 运行时）...$(RESET)\n"
 	@uname | grep -q "Darwin" || (printf "$(YELLOW)!$(RESET) 当前非 macOS，无法构建 DMG\n" && exit 1)
 	npm run tauri -- build --bundles dmg
 
@@ -217,8 +252,8 @@ release-push:
 release: release-check release-tag release-push
 	@printf "$(GREEN)✔$(RESET) Release tag 已推送，GitHub Actions 将开始构建并发布多平台安装包\n"
 
-release-ai: python-verify prepare-sidecar verify-sidecar-resources release-check release-tag release-push
-	@printf "$(GREEN)✔$(RESET) AI 版本发布流程完成（含 sidecar 资源校验）\n"
+release-ai: prepare-sidecar-runtime verify-sidecar-resources verify-sidecar-runtime release-check release-tag release-push
+	@printf "$(GREEN)✔$(RESET) AI 版本发布流程完成（内置 .venv 运行时）\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 测试
