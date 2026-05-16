@@ -138,6 +138,7 @@ const uploadedFileInfo = ref<{ name: string; size: number; file: File } | null>(
 // 'dataset' = BI已加载数据集, 'upload' = 手动上传文件
 const selectedDatasources = ref<DatasourceChoice[]>(['dataset'])
 const pythonAgentBaseUrl = ref('')
+const pythonAgentToken = ref('')
 const pythonSessionId = ref('')
 const pythonAgentReady = ref(false)
 const tokenStats = ref({
@@ -249,12 +250,14 @@ async function bootstrapPythonAgent() {
       running: boolean
       port: number
       base_url: string
+      auth_token: string
       python_bin: string
       app_dir: string
       pid?: number | null
-    }>('start_python_agent', { port: 5001 })
+    }>('start_python_agent')
 
-    pythonAgentBaseUrl.value = status.base_url || 'http://127.0.0.1:5001'
+    pythonAgentBaseUrl.value = status.base_url || ''
+    pythonAgentToken.value = status.auth_token || ''
     pythonAgentReady.value = true
 
     const localSessionId = sessionStore.currentSessionId
@@ -267,13 +270,21 @@ async function bootstrapPythonAgent() {
   }
 }
 
+function withSidecarHeaders(headers?: HeadersInit): Headers {
+  const merged = new Headers(headers || {})
+  if (pythonAgentToken.value) {
+    merged.set('Authorization', `Bearer ${pythonAgentToken.value}`)
+  }
+  return merged
+}
+
 async function createRemoteSession(): Promise<string> {
   if (!pythonAgentBaseUrl.value) {
     throw new Error('Python Agent 基础地址为空')
   }
   const sessionResp = await fetch(`${pythonAgentBaseUrl.value}/api/session/new`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: withSidecarHeaders({ 'Content-Type': 'application/json' }),
     body: '{}',
   })
 
@@ -354,6 +365,7 @@ async function ensureRemoteDatasourceBound(localSessionId: string) {
     fd.append('file', csvFile)
     const resp = await fetch(`${pythonAgentBaseUrl.value}/api/session/${remoteId}/upload`, {
       method: 'POST',
+      headers: withSidecarHeaders(),
       body: fd,
     })
     if (!resp.ok) {
@@ -369,6 +381,7 @@ async function ensureRemoteDatasourceBound(localSessionId: string) {
     const append = wantDataset ? '?append=true' : ''
     const resp = await fetch(`${pythonAgentBaseUrl.value}/api/session/${remoteId}/upload${append}`, {
       method: 'POST',
+      headers: withSidecarHeaders(),
       body: fd,
     })
     if (!resp.ok) {
@@ -401,7 +414,7 @@ async function syncRemoteSessionModel(modelId: string) {
 
   const response = await fetch(`${pythonAgentBaseUrl.value}/api/session/${pythonSessionId.value}/model`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: withSidecarHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ provider }),
   })
 
@@ -431,7 +444,7 @@ async function syncModelConfigToRemote(modelId: string) {
   const provider = (cfg.provider || cfg.id).trim()
   const response = await fetch(`${pythonAgentBaseUrl.value}/api/models/sync`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: withSidecarHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       provider,
       api_key: cfg.apiKey,
@@ -658,7 +671,7 @@ async function handleSendMessage(
 
     const response = await fetch(`${pythonAgentBaseUrl.value}/api/session/${pythonSessionId.value}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withSidecarHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         message,
         command,
@@ -741,8 +754,13 @@ async function handleSendMessage(
       } else if (event.type === 'code_block' && typeof event.content === 'string') {
         sessionStore.addMessage('assistant', event.content, 'code_block')
       } else if (event.type === 'chart_ref' && typeof event.chart_id === 'string') {
-        void fetch(`${pythonAgentBaseUrl.value}/api/chart/${event.chart_id}`)
-          .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`图表拉取失败: ${r.status}`))))
+        void fetch(`${pythonAgentBaseUrl.value}/api/chart/${event.chart_id}`, {
+          headers: withSidecarHeaders(),
+        })
+          .then((r) => {
+            if (!r.ok) return Promise.reject(new Error(`图表拉取失败: ${r.status}`))
+            return r.text()
+          })
           .then((html) => {
             sessionStore.addMessage('assistant', html, 'chart_html', { chartId: event.chart_id })
           })
@@ -905,7 +923,7 @@ async function handleUploadFile(file: File) {
     formData.append('file', file)
     const resp = await fetch(
       `${pythonAgentBaseUrl.value}/api/session/${pythonSessionId.value}/upload`,
-      { method: 'POST', body: formData }
+      { method: 'POST', headers: withSidecarHeaders(), body: formData }
     )
     if (!resp.ok) {
       const body = await resp.text()
@@ -930,7 +948,7 @@ async function handleStopStream() {
     try {
       await fetch(`${pythonAgentBaseUrl.value}/api/session/${pythonSessionId.value}/stop`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: withSidecarHeaders({ 'Content-Type': 'application/json' }),
         body: '{}',
       })
     } catch (error) {
@@ -1098,6 +1116,7 @@ function handleClearChat() {
           :messages="currentSession?.messages || []"
           :is-streaming="isStreaming"
           :api-base-url="pythonAgentBaseUrl"
+          :api-token="pythonAgentToken"
           @outline-action="handleOutlineAction"
         />
 

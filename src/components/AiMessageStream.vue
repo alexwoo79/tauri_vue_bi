@@ -124,6 +124,7 @@ interface Props {
   messages: AiMessage[]
   isStreaming?: boolean
   apiBaseUrl?: string
+  apiToken?: string
 }
 
 interface Emits {
@@ -143,6 +144,7 @@ interface Emits {
 const props = withDefaults(defineProps<Props>(), {
   isStreaming: false,
   apiBaseUrl: '',
+  apiToken: '',
 })
 const emit = defineEmits<Emits>()
 
@@ -333,7 +335,11 @@ async function handleMessageClick(e: MouseEvent) {
   }
 
   try {
-    const resp = await fetch(url)
+    const headers = new Headers()
+    if (props.apiToken) {
+      headers.set('Authorization', `Bearer ${props.apiToken}`)
+    }
+    const resp = await fetch(url, { headers })
     if (!resp.ok) throw new Error(`下载失败: ${resp.status}`)
     const blob = await resp.blob()
 

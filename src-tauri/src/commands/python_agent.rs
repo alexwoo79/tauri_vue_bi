@@ -1,12 +1,14 @@
 use once_cell::sync::OnceCell;
 use serde::Serialize;
 use std::env;
+use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
 use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio::time::timeout;
+use uuid::Uuid;
 
 static PYTHON_AGENT: OnceCell<Mutex<PythonAgentRuntime>> = OnceCell::new();
 
@@ -15,6 +17,7 @@ struct PythonAgentRuntime {
     child: Option<Child>,
     port: u16,
     base_url: String,
+    auth_token: String,
     python_bin: String,
     app_dir: String,
 }
@@ -24,9 +27,20 @@ pub struct PythonAgentStatus {
     pub running: bool,
     pub port: u16,
     pub base_url: String,
+    pub auth_token: String,
     pub python_bin: String,
     pub app_dir: String,
     pub pid: Option<u32>,
+}
+
+fn pick_random_local_port() -> Result<u16, String> {
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("分配随机端口失败: {e}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("读取随机端口失败: {e}"))?
+        .port();
+    drop(listener);
+    Ok(port)
 }
 
 fn runtime() -> &'static Mutex<PythonAgentRuntime> {
@@ -132,6 +146,7 @@ fn status_from_runtime(rt: &PythonAgentRuntime, pid: Option<u32>) -> PythonAgent
         running: pid.is_some(),
         port: rt.port,
         base_url: rt.base_url.clone(),
+        auth_token: rt.auth_token.clone(),
         python_bin: rt.python_bin.clone(),
         app_dir: rt.app_dir.clone(),
         pid,
@@ -143,8 +158,12 @@ pub async fn start_python_agent(
     app_handle: tauri::AppHandle,
     port: Option<u16>,
 ) -> Result<PythonAgentStatus, String> {
-    let port = port.unwrap_or(5001);
+    let port = match port {
+        Some(p) => p,
+        None => pick_random_local_port()?,
+    };
     let base_url = format!("http://127.0.0.1:{port}");
+    let auth_token = Uuid::new_v4().to_string();
 
     {
         let mut rt = runtime().lock().map_err(|e| e.to_string())?;
@@ -180,6 +199,8 @@ pub async fn start_python_agent(
         cmd.current_dir(&app_dir)
             .env("PORT", port.to_string())
             .env("AGENT_PORT", port.to_string())
+            .env("AGENT_HOST", "127.0.0.1")
+            .env("AGENT_TOKEN", &auth_token)
             .env("PYTHONUNBUFFERED", "1")
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit());
@@ -199,6 +220,7 @@ pub async fn start_python_agent(
 
         rt.port = port;
         rt.base_url = base_url.clone();
+        rt.auth_token = auth_token;
         rt.python_bin = launch_spec.display;
         rt.app_dir = app_dir;
         rt.child = Some(child);
@@ -249,8 +271,8 @@ pub async fn python_agent_status() -> Result<PythonAgentStatus, String> {
     };
 
     if rt.base_url.is_empty() {
-        rt.port = 5001;
-        rt.base_url = format!("http://127.0.0.1:{}", rt.port);
+        rt.port = 0;
+        rt.base_url = String::new();
     }
 
     if rt.app_dir.is_empty() {
@@ -269,7 +291,12 @@ pub async fn python_agent_health() -> Result<PythonAgentStatus, String> {
     }
 
     let url = format!("{}/api/models", status.base_url);
-    let healthy = match reqwest::get(url).await {
+    let healthy = match reqwest::Client::new()
+        .get(url)
+        .bearer_auth(&status.auth_token)
+        .send()
+        .await
+    {
         Ok(resp) => resp.status().is_success(),
         Err(_) => false,
     };
