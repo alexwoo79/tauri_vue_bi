@@ -6,7 +6,7 @@
 <template>
   <div class="message-stream">
     <!-- 消息列表 -->
-    <div class="messages-container">
+    <div class="messages-container" @click.capture="handleMessageClick">
       <div
         v-for="msg in messages"
         :key="msg.id"
@@ -44,6 +44,14 @@
             <span>{{ msg.metadata?.error || msg.content }}</span>
           </div>
           <div v-else-if="msg.type === 'thinking'" class="thinking-note">{{ msg.content }}</div>
+          <div v-else-if="msg.type === 'outline'" class="outline-card">
+            <div class="message-content" v-html="renderMarkdown(msg.content)"></div>
+            <div class="outline-actions">
+              <el-button size="small" type="primary" @click="emitOutlineAction(msg, 'confirm')">确认</el-button>
+              <el-button size="small" @click="emitOutlineAction(msg, 'revise')">修改</el-button>
+              <el-button size="small" text @click="emitOutlineAction(msg, 'cancel')">取消</el-button>
+            </div>
+          </div>
           <div v-else class="message-content">
             <div v-html="renderMarkdown(msg.content)"></div>
           </div>
@@ -77,6 +85,22 @@
       />
     </el-dialog>
 
+    <el-dialog v-model="dashboardPreviewVisible" width="96vw" top="2vh" class="dashboard-preview-dialog" append-to-body>
+      <div v-if="dashboardPreviewLoading" class="dashboard-preview-loading">看板加载中...</div>
+      <div v-else-if="dashboardPreviewError" class="dashboard-preview-error">
+        <div>看板打开失败：{{ dashboardPreviewError }}</div>
+        <div class="dashboard-preview-url">URL: {{ dashboardPreviewUrl }}</div>
+      </div>
+      <iframe
+        v-else-if="dashboardPreviewUrl"
+        :src="dashboardPreviewUrl"
+        class="dashboard-preview-iframe"
+        frameborder="0"
+        scrolling="auto"
+        @load="handleDashboardLoaded"
+      />
+    </el-dialog>
+
     <!-- 自动滚动到底部 -->
     <div ref="scrollAnchor"></div>
   </div>
@@ -84,6 +108,7 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Loading, Warning } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -92,15 +117,37 @@ import type { AiMessage } from '../utils/aiTypes'
 interface Props {
   messages: AiMessage[]
   isStreaming?: boolean
+  apiBaseUrl?: string
+}
+
+interface Emits {
+  (e: 'outline-action', payload: {
+    action: 'confirm' | 'revise' | 'cancel'
+    outlineType: 'excel' | 'report' | 'ppt' | 'dashboard'
+    tables?: string[]
+    filename?: string
+    title?: string
+    sections?: Record<string, any>[]
+    slides?: Record<string, any>[]
+    name?: string
+    widgets?: Record<string, any>[]
+  }): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isStreaming: false,
+  apiBaseUrl: '',
 })
+const emit = defineEmits<Emits>()
 
 const scrollAnchor = ref<HTMLDivElement>()
 const chartFullscreenVisible = ref(false)
 const fullscreenChartHtml = ref('')
+const dashboardPreviewVisible = ref(false)
+const dashboardPreviewUrl = ref('')
+const dashboardPreviewLoading = ref(false)
+const dashboardPreviewError = ref('')
+let dashboardPreviewTimer: number | null = null
 
 // 自动滚动到底部
 watch(
@@ -120,13 +167,167 @@ function highlightCode(code: string): string {
 
 function renderMarkdown(content: string): string {
   if (!content) return ''
-  const html = marked.parse(content, { breaks: true }) as string
-  return DOMPurify.sanitize(html)
+  const rawHtml = marked.parse(content, { breaks: true }) as string
+  const clean = DOMPurify.sanitize(rawHtml)
+
+  // Rewrite relative backend links (e.g. /api/export/...) to absolute Flask URLs
+  // so downloads work correctly from the Tauri/Vite webview origin.
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(clean, 'text/html')
+  const anchors = doc.querySelectorAll('a[href]')
+  anchors.forEach((a) => {
+    const href = a.getAttribute('href') || ''
+    const absHref = href.startsWith('/api/') || href.startsWith('/dashboard/')
+      ? `${props.apiBaseUrl}${href}`
+      : href
+
+    if (href.includes('/api/export/')) {
+      const btn = doc.createElement('button')
+      btn.setAttribute('type', 'button')
+      btn.className = 'inline-link-btn export'
+      btn.setAttribute('data-export-url', absHref)
+      btn.textContent = a.textContent || '下载文件'
+      a.replaceWith(btn)
+      return
+    }
+
+    if (href.includes('/dashboard/')) {
+      const btn = doc.createElement('button')
+      btn.setAttribute('type', 'button')
+      btn.className = 'inline-link-btn dashboard'
+      btn.setAttribute('data-dashboard-url', absHref)
+      btn.textContent = a.textContent || '打开看板'
+      a.replaceWith(btn)
+      return
+    }
+
+    a.setAttribute('href', absHref)
+    a.setAttribute('target', '_blank')
+    a.setAttribute('rel', 'noopener noreferrer')
+  })
+  return doc.body.innerHTML
 }
 
 function openChartFullscreen(html: string) {
   fullscreenChartHtml.value = html
   chartFullscreenVisible.value = true
+}
+
+function handleDashboardLoaded() {
+  dashboardPreviewLoading.value = false
+  dashboardPreviewError.value = ''
+  if (dashboardPreviewTimer !== null) {
+    window.clearTimeout(dashboardPreviewTimer)
+    dashboardPreviewTimer = null
+  }
+}
+
+function startDashboardPreview(url: string) {
+  dashboardPreviewUrl.value = url
+  dashboardPreviewError.value = ''
+  dashboardPreviewLoading.value = true
+  dashboardPreviewVisible.value = true
+
+  if (dashboardPreviewTimer !== null) {
+    window.clearTimeout(dashboardPreviewTimer)
+    dashboardPreviewTimer = null
+  }
+  dashboardPreviewTimer = window.setTimeout(() => {
+    if (dashboardPreviewLoading.value) {
+      dashboardPreviewLoading.value = false
+      dashboardPreviewError.value = '加载超时，请确认 Python Flask 服务可用且 dashboard 路由可访问。'
+    }
+  }, 10000)
+}
+
+watch(
+  () => dashboardPreviewVisible.value,
+  (visible) => {
+    if (!visible) {
+      if (dashboardPreviewTimer !== null) {
+        window.clearTimeout(dashboardPreviewTimer)
+        dashboardPreviewTimer = null
+      }
+      dashboardPreviewLoading.value = false
+      dashboardPreviewError.value = ''
+      dashboardPreviewUrl.value = ''
+    }
+  }
+)
+
+async function handleMessageClick(e: MouseEvent) {
+  const rawTarget = e.target
+  const baseEl = rawTarget instanceof Element
+    ? rawTarget
+    : rawTarget instanceof Node
+      ? rawTarget.parentElement
+      : null
+  const exportBtn = baseEl?.closest('button[data-export-url]') as HTMLButtonElement | null
+  const dashboardBtn = baseEl?.closest('button[data-dashboard-url]') as HTMLButtonElement | null
+
+  let url = ''
+  let isExportLink = false
+  let isDashboardLink = false
+
+  if (exportBtn) {
+    url = exportBtn.dataset.exportUrl || ''
+    isExportLink = !!url
+  } else if (dashboardBtn) {
+    url = dashboardBtn.dataset.dashboardUrl || ''
+    isDashboardLink = !!url
+  } else {
+    const anchor = baseEl?.closest('a[href]') as HTMLAnchorElement | null
+    if (!anchor) return
+    const href = anchor.getAttribute('href') || ''
+    isExportLink = href.includes('/api/export/')
+    isDashboardLink = href.includes('/dashboard/')
+    if (!isExportLink && !isDashboardLink) return
+    url = href.startsWith('http') ? href : `${props.apiBaseUrl}${href}`
+  }
+
+  e.preventDefault()
+  if (!url) return
+
+  if (isDashboardLink) {
+    startDashboardPreview(url)
+    return
+  }
+
+  try {
+    const resp = await fetch(url)
+    if (!resp.ok) throw new Error(`下载失败: ${resp.status}`)
+    const blob = await resp.blob()
+
+    const filename = decodeURIComponent(url.split('/').pop() || 'export.bin')
+    const blobUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 3000)
+    ElMessage.success(`开始下载：${filename}`)
+  } catch (err) {
+    console.error('[AiMessageStream] export download failed:', err)
+    ElMessage.error('下载失败，请确认 Flask 服务与导出文件是否可用。')
+  }
+}
+
+function emitOutlineAction(msg: AiMessage, action: 'confirm' | 'revise' | 'cancel') {
+  const outlineType = msg.metadata?.outlineType
+  if (!outlineType) return
+  emit('outline-action', {
+    action,
+    outlineType,
+    tables: msg.metadata?.tables,
+    filename: msg.metadata?.filename,
+    title: msg.metadata?.title,
+    sections: msg.metadata?.sections,
+    slides: msg.metadata?.slides,
+    name: msg.metadata?.name,
+    widgets: msg.metadata?.widgets,
+  })
 }
 </script>
 
@@ -283,6 +484,47 @@ function openChartFullscreen(html: string) {
   padding: 8px;
 }
 
+.dashboard-preview-iframe {
+  width: 100%;
+  height: 88vh;
+}
+
+.dashboard-preview-loading,
+.dashboard-preview-error {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+}
+
+.dashboard-preview-url {
+  margin-top: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.message-content :deep(.inline-link-btn) {
+  border: 1px solid var(--el-border-color);
+  background: var(--el-fill-color-light);
+  color: var(--el-color-primary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.message-content :deep(.inline-link-btn:hover) {
+  border-color: var(--el-color-primary);
+}
+
+.dashboard-preview-dialog :deep(.el-dialog__body) {
+  padding: 8px;
+}
+
 .code-block {
   background-color: #282c34;
   color: #abb2bf;
@@ -311,6 +553,18 @@ function openChartFullscreen(html: string) {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   line-height: 1.55;
+}
+
+.outline-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.outline-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .system-message {

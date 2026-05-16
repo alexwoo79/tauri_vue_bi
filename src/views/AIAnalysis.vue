@@ -535,7 +535,21 @@ function resetToDefaults() {
 // 消息处理
 // ────────────────────────────────────────────────────────────
 
-async function handleSendMessage(message: string, command = '') {
+async function handleSendMessage(
+  message: string,
+  command = '',
+  options?: {
+    suppressUserMessage?: boolean
+    excelTables?: string[]
+    excelFilename?: string
+    reportTitle?: string
+    reportSections?: Record<string, any>[]
+    pptTitle?: string
+    pptSlides?: Record<string, any>[]
+    dashboardName?: string
+    dashboardWidgets?: Record<string, any>[]
+  }
+) {
   if (!selectedModel.value) {
     ElMessage.warning('请先选择一个模型')
     return
@@ -562,8 +576,10 @@ async function handleSendMessage(message: string, command = '') {
   }
 
   // 添加用户消息
-  const userDisplayMessage = command ? `/${command} ${message}`.trim() : message
-  sessionStore.addMessage('user', userDisplayMessage)
+  if (!options?.suppressUserMessage) {
+    const userDisplayMessage = command ? `/${command} ${message}`.trim() : message
+    sessionStore.addMessage('user', userDisplayMessage)
+  }
 
   isStreaming.value = true
   try {
@@ -573,7 +589,18 @@ async function handleSendMessage(message: string, command = '') {
     const response = await fetch(`${pythonAgentBaseUrl.value}/api/session/${pythonSessionId.value}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, command }),
+      body: JSON.stringify({
+        message,
+        command,
+        excel_tables: options?.excelTables || [],
+        excel_filename: options?.excelFilename || '',
+        report_title: options?.reportTitle || '',
+        report_sections: options?.reportSections || [],
+        ppt_title: options?.pptTitle || '',
+        ppt_slides: options?.pptSlides || [],
+        dashboard_name: options?.dashboardName || '',
+        dashboard_widgets: options?.dashboardWidgets || [],
+      }),
       signal: streamAbortController.value.signal,
     })
 
@@ -600,6 +627,46 @@ async function handleSendMessage(message: string, command = '') {
         const resultText = typeof event.content === 'string' ? event.content : JSON.stringify(event)
         sessionStore.addMessage('assistant', resultText, 'text', {
           display: '工具执行结果',
+        })
+      } else if (event.type === 'excel_outline') {
+        const ev = event as Record<string, unknown>
+        const markdown = typeof ev.markdown === 'string' ? ev.markdown : '已生成导出计划。'
+        const tables = Array.isArray(ev.tables) ? (ev.tables.filter((x) => typeof x === 'string') as string[]) : ['*']
+        const filename = typeof ev.filename === 'string' ? ev.filename : ''
+        sessionStore.addMessage('assistant', markdown, 'outline', {
+          outlineType: 'excel',
+          tables,
+          filename,
+        })
+      } else if (event.type === 'report_outline') {
+        const ev = event as Record<string, unknown>
+        const markdown = typeof ev.markdown === 'string' ? ev.markdown : '已生成报告大纲。'
+        const title = typeof ev.title === 'string' ? ev.title : '分析报告'
+        const sections = Array.isArray(ev.sections) ? (ev.sections as Record<string, any>[]) : []
+        sessionStore.addMessage('assistant', markdown, 'outline', {
+          outlineType: 'report',
+          title,
+          sections,
+        })
+      } else if (event.type === 'ppt_outline') {
+        const ev = event as Record<string, unknown>
+        const markdown = typeof ev.markdown === 'string' ? ev.markdown : '已生成 PPT 大纲。'
+        const title = typeof ev.title === 'string' ? ev.title : 'PPT'
+        const slides = Array.isArray(ev.slides) ? (ev.slides as Record<string, any>[]) : []
+        sessionStore.addMessage('assistant', markdown, 'outline', {
+          outlineType: 'ppt',
+          title,
+          slides,
+        })
+      } else if (event.type === 'dashboard_outline') {
+        const ev = event as Record<string, unknown>
+        const markdown = typeof ev.markdown === 'string' ? ev.markdown : '已生成看板大纲。'
+        const name = typeof ev.name === 'string' ? ev.name : 'Dashboard'
+        const widgets = Array.isArray(ev.widgets) ? (ev.widgets as Record<string, any>[]) : []
+        sessionStore.addMessage('assistant', markdown, 'outline', {
+          outlineType: 'dashboard',
+          name,
+          widgets,
         })
       } else if (event.type === 'code_block' && typeof event.content === 'string') {
         sessionStore.addMessage('assistant', event.content, 'code_block')
@@ -667,6 +734,95 @@ function handleCommand(cmd: string) {
 function handleSendWithCommand(payload: { command: string; message: string }) {
   const msg = payload.message?.trim() || '请基于当前数据执行该命令并给出结果。'
   void handleSendMessage(msg, payload.command)
+}
+
+function handleOutlineAction(payload: {
+  action: 'confirm' | 'revise' | 'cancel'
+  outlineType: 'excel' | 'report' | 'ppt' | 'dashboard'
+  tables?: string[]
+  filename?: string
+  title?: string
+  sections?: Record<string, any>[]
+  slides?: Record<string, any>[]
+  name?: string
+  widgets?: Record<string, any>[]
+}) {
+  if (payload.action === 'cancel') {
+    sessionStore.addMessage('system', '已取消本次导出计划', 'text')
+    return
+  }
+
+  if (payload.action === 'revise') {
+    const reviseMap = {
+      excel: 'excel_revise',
+      report: 'report_revise',
+      ppt: 'ppt_revise',
+      dashboard: 'dashboard_revise',
+    } as const
+
+    const currentJsonMap = {
+      excel: `[CURRENT_EXCEL_JSON] ${JSON.stringify({
+        tables: payload.tables || ['*'],
+        filename: payload.filename || '',
+      })}`,
+      report: `[CURRENT_REPORT_JSON] ${JSON.stringify({
+        title: payload.title || '分析报告',
+        sections: payload.sections || [],
+      })}`,
+      ppt: `[CURRENT_SLIDES_JSON] ${JSON.stringify({
+        title: payload.title || 'PPT',
+        slides: payload.slides || [],
+      })}`,
+      dashboard: `[CURRENT_DASHBOARD_JSON] ${JSON.stringify({
+        name: payload.name || 'Dashboard',
+        widgets: payload.widgets || [],
+      })}`,
+    } as const
+
+    const reviseInstructionMap = {
+      excel: '请根据当前 Excel 导出方案进行修改。',
+      report: '请根据当前报告大纲进行修改。',
+      ppt: '请根据当前 PPT 大纲进行修改。',
+      dashboard: '请根据当前看板大纲进行修改。',
+    } as const
+
+    const reviseMessage = `${reviseInstructionMap[payload.outlineType]}\n\n${currentJsonMap[payload.outlineType]}`
+    void handleSendMessage(reviseMessage, reviseMap[payload.outlineType])
+    return
+  }
+
+  if (payload.outlineType === 'excel') {
+    void handleSendMessage('确认导出', 'excel_confirm', {
+      suppressUserMessage: true,
+      excelTables: payload.tables || ['*'],
+      excelFilename: payload.filename || '',
+    })
+    return
+  }
+
+  if (payload.outlineType === 'report') {
+    void handleSendMessage('确认生成报告', 'report_confirm', {
+      suppressUserMessage: true,
+      reportTitle: payload.title || '分析报告',
+      reportSections: payload.sections || [],
+    })
+    return
+  }
+
+  if (payload.outlineType === 'ppt') {
+    void handleSendMessage('确认生成PPT', 'ppt_confirm', {
+      suppressUserMessage: true,
+      pptTitle: payload.title || 'PPT',
+      pptSlides: payload.slides || [],
+    })
+    return
+  }
+
+  void handleSendMessage('确认生成看板', 'dashboard_confirm', {
+    suppressUserMessage: true,
+    dashboardName: payload.name || 'Dashboard',
+    dashboardWidgets: payload.widgets || [],
+  })
 }
 
 async function handleUploadFile(file: File) {
@@ -871,6 +1027,8 @@ function handleClearChat() {
         <AiMessageStream
           :messages="currentSession?.messages || []"
           :is-streaming="isStreaming"
+          :api-base-url="pythonAgentBaseUrl"
+          @outline-action="handleOutlineAction"
         />
 
         <!-- 消息输入框 -->

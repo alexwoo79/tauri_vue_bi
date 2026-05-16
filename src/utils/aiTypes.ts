@@ -52,6 +52,14 @@ export interface AiMessage {
         display?: string
         chartId?: string
         error?: string
+        outlineType?: 'excel' | 'report' | 'ppt' | 'dashboard'
+        tables?: string[]
+        filename?: string
+        title?: string
+        sections?: Record<string, any>[]
+        slides?: Record<string, any>[]
+        name?: string
+        widgets?: Record<string, any>[]
         inputTokens?: number
         outputTokens?: number
         sessionTotalOutput?: number
@@ -63,6 +71,7 @@ export interface AiMessage {
 export type AiMessageType =
     | 'text'
     | 'text_delta'
+    | 'outline'
     | 'tool_start'
     | 'tool_result'
     | 'chart_html'
@@ -78,11 +87,20 @@ export type AiMessageType =
 export interface AiEvent {
     type: AiEventType
     content?: string
+    message?: string
     tool?: string
     display?: string
     html?: string
     chartId?: string
     chart_id?: string
+    tables?: string[]
+    filename?: string
+    title?: string
+    sections?: Record<string, any>[]
+    slides?: Record<string, any>[]
+    name?: string
+    widgets?: Record<string, any>[]
+    markdown?: string
     error?: string
     reasoning?: string
     usage?: {
@@ -97,6 +115,10 @@ export type AiEventType =
     | 'text_delta'
     | 'tool_start'
     | 'tool_result'
+    | 'excel_outline'
+    | 'report_outline'
+    | 'ppt_outline'
+    | 'dashboard_outline'
     | 'chart_ref'
     | 'chart_html'
     | 'code_block'

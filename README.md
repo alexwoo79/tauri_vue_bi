@@ -199,3 +199,47 @@ git push origin tauri-vue-bi-v0.1.0
 2. 在 `src-tauri/src/lib.rs` 增加 `#[tauri::command]` 包装函数。
 3. 在 `tauri::generate_handler![]` 中注册新命令。
 4. 前端通过 `invoke('command_name', params)` 调用。
+
+## 阶段二验收收口（2026-05-16）
+
+### 目标范围
+
+- Tauri + Vue + Python sidecar（Flask）端到端打通
+- Vue 聊天页可消费 Flask SSE（文本、工具状态、图表、outline）
+- outline 两段式交互：confirm / revise / cancel
+- 导出与 Dashboard 链路可从聊天消息触发
+
+### 自动化验收结果（已通过）
+
+- 前端构建：`npm run build` 通过
+- Rust 编译检查：`cd src-tauri && cargo check` 通过
+- Python 关键模块语法：`py_compile` 通过（app/api/agent 关键文件）
+- Flask 路由注册（在 sidecar venv 中检查）：
+	- `/api/session/<sid>/chat`
+	- `/api/export/<path:filename>`
+	- `/dashboard/<dashboard_id>`
+	- `/api/dashboard/generate`
+
+### 当前功能状态
+
+- 已完成：
+	- Vue 与 Flask 会话/消息流交互
+	- 多数据源选择与同步（BI 数据 + 手动上传）
+	- Excel/Report/PPT/Dashboard outline 交互卡片与确认链路
+	- 导出下载与 Dashboard 打开的前端兜底处理
+- 待人工回归确认：
+	- Tauri 桌面窗口中点击“下载文件”是否稳定触发本地下载
+	- Tauri 桌面窗口中点击“打开看板”是否稳定显示 iframe 弹窗
+	- revise 场景下模型是否按 CURRENT_*_JSON 正确改写大纲
+
+### 人工回归建议（发布前）
+
+1. 启动 `make dev`，进入 AI 页面，上传样例数据。
+2. 依次执行 `/export`、`/report`、`/ppt`、`/dashboard`。
+3. 每个 outline 分别点一次“确认 / 修改 / 取消”验证分支。
+4. 验证导出文件可下载、Dashboard 可打开。
+5. 关闭并重启应用，确认会话与模型配置行为符合预期。
+
+### 已知注意项
+
+- 若日志出现 `[MCP] 加载配置失败`，通常为 MCP 配置文件内容异常，不影响核心聊天/导出主链路；发布前建议补充空配置容错与提示。
