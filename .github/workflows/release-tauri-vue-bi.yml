@@ -81,11 +81,7 @@ jobs:
         run: uv sync --project Data-Analysis-Agent
 
       - name: Prepare sidecar resources (with embedded .venv)
-        run: |
-          python scripts/prepare_sidecar_runtime.py \
-            --source Data-Analysis-Agent \
-            --target src-tauri/resources/Data-Analysis-Agent \
-            --require-venv
+        run: python scripts/prepare_sidecar_runtime.py --source Data-Analysis-Agent --target src-tauri/resources/Data-Analysis-Agent --require-venv
 
       - name: Build and publish Tauri bundles
         uses: tauri-apps/tauri-action@v0
