@@ -1,17 +1,24 @@
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use polars::prelude::*;
 use tauri::Emitter;
 use uuid::Uuid;
 use futures::StreamExt;
+
+// ✅ 新增：导入 Agent 模块（使用别名避免冲突）
+use crate::agent::state_machine::{BusinessAgent as AgentStateMachine, AgentRunParams, SseEvent};
 
 // ✅ 使用 include_str! 直接嵌入工具 schema JSON，避免模块依赖
 use crate::commands::chart::fetch_chart_data_impl;
 use crate::df_util::df_to_payload;
 use crate::llm::{LLMClient, Message, MessageRole, OpenAIClient};
 use crate::state::GLOBAL_DF;
+
+// ✅ 新增：全局图表存储（用于存储生成的图表 HTML）
+static CHART_STORE: Lazy<Arc<Mutex<HashMap<String, String>>>> = 
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 // ✅ 新增：执行工具调用的辅助函数（简化版，不依赖 agent 模块）
 async fn execute_tool_call(tool_name: &str, args_str: &str) -> Result<String, String> {
@@ -194,8 +201,8 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-static SESSION_MANAGER: Lazy<Mutex<SessionManager>> =
-    Lazy::new(|| Mutex::new(SessionManager::default()));
+static SESSION_MANAGER: Lazy<Arc<Mutex<SessionManager>>> =
+    Lazy::new(|| Arc::new(Mutex::new(SessionManager::default())));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionInfo {
@@ -656,179 +663,227 @@ pub async fn chat_stream(
     base_url: Option<String>,
 ) -> Result<(), String> {
     let provider = provider.unwrap_or_else(|| "openai".to_string());
+    let model = model.unwrap_or_else(|| "gpt-4".to_string());
 
-    // ✅ 添加用户消息到会话历史
-    {
-        let mut manager = SESSION_MANAGER.lock().map_err(|e| e.to_string())?;
-        manager.add_message(&session_id, "user", &user_message)?;
-    }
+    tracing::info!(
+        session_id = %session_id,
+        command = ?command,
+        model = %model,
+        "Starting chat stream with AgentStateMachine"
+    );
 
     // ✅ 构建 LLM 客户端
     let llm_client = build_llm_client(
         &provider,
-        model.as_deref(),
+        Some(&model),
         api_key.as_deref(),
         base_url.as_deref(),
     )?;
 
-    // ✅ 获取会话历史
-    let history = {
-        let manager = SESSION_MANAGER.lock().map_err(|e| e.to_string())?;
-        manager
-            .sessions
-            .get(&session_id)
-            .map(|s| s.messages.clone())
-            .unwrap_or_default()
-    };
-
-    // ✅ 构建消息列表（包含系统提示词和历史）
-    let mut messages = vec![Message::system(build_system_prompt(command.as_deref()))];
-    for msg in history.iter().rev().take(12).rev() {
-        match msg.role.as_str() {
-            "user" => messages.push(Message::user(msg.content.clone())),
-            "assistant" => messages.push(Message::assistant(msg.content.clone())),
-            _ => {}
-        }
-    }
-    if !matches!(messages.last().map(|m| &m.role), Some(MessageRole::User)) {
-        messages.push(Message::user(user_message.clone()));
-    }
-
-    // ✅ 获取工具定义（使用本地函数，避免依赖 agent 模块）
-    let tools = get_agent_tools_local();
-
-    // ✅ 调用带工具的 LLM（tool_choice="auto" 让 LLM 自主决定）
-    let mut stream = llm_client
-        .chat_stream_with_tools(messages, &tools, Some("auto"))
-        .await
-        .map_err(|e| format!("LLM stream failed: {}", e))?;
-
-    let mut full_content = String::new();
-    let mut chunk_count = 0;
-    
-    // ✅ 处理流式响应
-    while let Some(chunk_result) = stream.next().await {
-        let chunk = match chunk_result {
-            Ok(c) => c,
-            Err(e) => {
-                let err = format!("LLM stream chunk error: {}", e);
-                app.emit(
-                    "sse-event",
-                    serde_json::json!({"type":"error","message":err}),
-                )
-                .ok();
-                return Err(err);
-            }
-        };
-
-        chunk_count += 1;
+    // ✅ 创建兼容的 session manager（使用 agent::session::SessionManager）
+    let compat_session_mgr = {
+        let local_mgr = SESSION_MANAGER.lock().map_err(|e| e.to_string())?;
+        let mut agent_mgr = crate::agent::session::SessionManager::new();
         
-        // ✅ 处理推理链（如果有）
-        if let Some(reasoning) = chunk.reasoning {
-            app.emit(
-                "sse-event",
-                serde_json::json!({"type":"reasoning","content":reasoning}),
-            )
-            .ok();
-        }
-
-        // ✅ 处理文本增量
-        if let Some(content) = chunk.content {
-            full_content.push_str(&content);
-            app.emit(
-                "sse-event",
-                serde_json::json!({"type":"text_delta","content":content}),
-            )
-            .map_err(|e| e.to_string())?;
-        }
-
-        // ✅ 处理工具调用
-        if let Some(tool_calls) = chunk.tool_calls {
-            tracing::info!(tool_call_count = tool_calls.len(), "Tool calls detected");
+        // 迁移所有会话数据
+        for (id, local_session) in &local_mgr.sessions {
+            // 创建新的 ChatSession
+            let mut new_session = crate::agent::session::ChatSession::new(&local_session.model_id);
+            new_session.id = id.clone();
+            new_session.title = local_session.title.clone();
+            new_session.created_at = local_session.created_at;
+            new_session.updated_at = local_session.updated_at;
             
-            for tool_call in tool_calls {
-                let tool_name = tool_call.function.name.clone();
-                let args_str = tool_call.function.arguments.clone();
-                
-                tracing::info!(tool_name = %tool_name, "Executing tool");
-                
-                // ✅ 发送 tool_start 事件（仅针对具体工具，不是 llm_chat_stream）
-                app.emit(
-                    "sse-event",
-                    serde_json::json!({
-                        "type": "tool_start",
-                        "tool": tool_name,
-                        "display": "执行中..."
-                    }),
-                )
-                .ok();
-                
-                // ✅ 执行工具并获取结果
-                let result = execute_tool_call(&tool_name, &args_str).await;
-                
-                match result {
-                    Ok(result_text) => {
-                        // ✅ 发送 tool_result 事件
-                        app.emit(
-                            "sse-event",
-                            serde_json::json!({
-                                "type": "tool_result",
-                                "tool": tool_name,
-                                "content": result_text
-                            }),
-                        )
-                        .ok();
-                        
-                        // TODO: 将工具结果返回给 LLM 进行下一轮对话
-                        // 这需要更复杂的多轮对话循环，当前先简化处理
-                    }
-                    Err(e) => {
-                        tracing::error!(tool_name = %tool_name, error = %e, "Tool execution failed");
-                        app.emit(
-                            "sse-event",
-                            serde_json::json!({
-                                "type": "error",
-                                "message": format!("工具 {} 执行失败: {}", tool_name, e)
-                            }),
-                        )
-                        .ok();
-                    }
+            // 迁移消息
+            for msg in &local_session.messages {
+                if msg.role == "user" {
+                    new_session.add_user_message(&msg.content);
+                } else if msg.role == "assistant" {
+                    new_session.add_assistant_message(&msg.content);
                 }
             }
-        }
-
-        // ✅ 检查结束条件
-        if chunk.finish_reason == Some("stop".to_string()) || chunk.finish_reason == Some("length".to_string()) {
-            tracing::info!(
-                chunk_count = chunk_count,
-                full_content_len = full_content.len(),
-                finish_reason = ?chunk.finish_reason,
-                "Stream finished"
-            );
-            break;
+            
+            agent_mgr.get_sessions_mut().insert(id.clone(), new_session);
         }
         
-        // ✅ tool_calls 结束时也退出（工具执行已在上面完成）
-        if chunk.finish_reason == Some("tool_calls".to_string()) {
-            tracing::info!("Tool calls completed, ending stream");
-            break;
+        Arc::new(Mutex::new(agent_mgr))
+    };
+
+    // ✅ 创建 BusinessAgent（将 Box 转换为 Arc）
+    let agent = AgentStateMachine::new(
+        Arc::from(llm_client),  // ✅ 转换 Box<dyn LLMClient> 为 Arc<dyn LLMClient>
+        model.clone(),
+        false, // enable_thinking - 暂时禁用
+        compat_session_mgr,
+    );
+
+    // ✅ 构建 AgentRunParams
+    let params = AgentRunParams {
+        user_message: user_message.clone(),
+        command,
+        ppt_title: None,
+        ppt_slides: None,
+        excel_tables: None,
+        excel_filename: None,
+        report_title: None,
+        report_sections: None,
+        dashboard_name: None,
+        dashboard_widgets: None,
+    };
+
+    // ✅ 调用 run_stream 获取 SSE 事件流
+    let mut rx = agent.run_stream(&session_id, params).await
+        .map_err(|e| format!("Agent run failed: {}", e))?;
+
+    // ✅ 转发 SSE 事件到 Tauri emit
+    while let Some(event) = rx.recv().await {
+        match event {
+            SseEvent::TextDelta { content } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "text_delta",
+                    "content": content
+                })).ok();
+            }
+            SseEvent::Text { content } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "text",
+                    "content": content
+                })).ok();
+            }
+            SseEvent::ToolStart { tool, display } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "tool_start",
+                    "tool": tool,
+                    "display": display
+                })).ok();
+            }
+            SseEvent::ToolEnd { tool } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "tool_end",
+                    "tool": tool
+                })).ok();
+            }
+            SseEvent::ToolResult { tool, content } => {
+                // ✅ 转发工具结果到前端（关键修复：让前端看到工具返回的数据）
+                app.emit("sse-event", serde_json::json!({
+                    "type": "tool_result",
+                    "tool": tool,
+                    "content": content
+                })).ok();
+            }
+            SseEvent::ChartHtml { html } => {
+                // ✅ 生成 chart_id 并存储到全局 CHART_STORE
+                let chart_id = Uuid::new_v4().to_string();
+                {
+                    let mut store = CHART_STORE.lock().map_err(|e| e.to_string())?;
+                    store.insert(chart_id.clone(), html.clone());
+                }
+                
+                tracing::info!(chart_id = %chart_id, "Chart stored");
+                
+                // ✅ 发送 chart_ref 事件给前端
+                app.emit("sse-event", serde_json::json!({
+                    "type": "chart_ref",
+                    "chart_id": chart_id
+                })).ok();
+            }
+            SseEvent::ChartRef { chart_id } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "chart_ref",
+                    "chart_id": chart_id
+                })).ok();
+            }
+            SseEvent::ChartPlaceholder { index } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "chart_placeholder",
+                    "index": index
+                })).ok();
+            }
+            SseEvent::Reasoning { content } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "reasoning",
+                    "content": content
+                })).ok();
+            }
+            SseEvent::Usage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                context_window,
+                max_output_tokens,
+                session_total_input,
+                session_total_output,
+            } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "usage",
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                    "context_window": context_window,
+                    "max_output_tokens": max_output_tokens,
+                    "session_total_input": session_total_input,
+                    "session_total_output": session_total_output
+                })).ok();
+            }
+            SseEvent::PptOutline { title, slides, markdown } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "ppt_outline",
+                    "title": title,
+                    "slides": slides,
+                    "markdown": markdown
+                })).ok();
+            }
+            SseEvent::ExcelOutline { tables, filename, markdown } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "excel_outline",
+                    "tables": tables,
+                    "filename": filename,
+                    "markdown": markdown
+                })).ok();
+            }
+            SseEvent::ReportOutline { title, sections, markdown } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "report_outline",
+                    "title": title,
+                    "sections": sections,
+                    "markdown": markdown
+                })).ok();
+            }
+            SseEvent::DashboardOutline { name, widgets, markdown } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "dashboard_outline",
+                    "name": name,
+                    "widgets": widgets,
+                    "markdown": markdown
+                })).ok();
+            }
+            SseEvent::PptScheme { scheme } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "ppt_scheme",
+                    "scheme": scheme
+                })).ok();
+            }
+            SseEvent::Error { message } => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "error",
+                    "message": message
+                })).ok();
+            }
+            SseEvent::Stopped => {
+                app.emit("sse-event", serde_json::json!({
+                    "type": "stopped"
+                })).ok();
+            }
+            SseEvent::Done => {
+                tracing::info!("Agent stream completed");
+                app.emit("sse-event", serde_json::json!({
+                    "type": "done"
+                })).ok();
+                break; // ✅ 退出循环
+            }
         }
     }
-    
-    tracing::info!(full_content = %full_content, "Final content collected");
 
-    // ✅ 保存助手回复到会话历史
-    {
-        let mut manager = SESSION_MANAGER.lock().map_err(|e| e.to_string())?;
-        manager.add_message(&session_id, "assistant", &full_content)?;
-    }
-
-    // ❌ 已删除：不再发送 "LLM 调用完成" 事件
-    
-    // ✅ 发送 done 事件
-    app.emit("sse-event", serde_json::json!({ "type": "done" }))
-        .map_err(|e| e.to_string())?;
-    
     Ok(())
 }
 

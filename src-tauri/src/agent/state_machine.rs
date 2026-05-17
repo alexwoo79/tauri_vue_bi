@@ -19,8 +19,15 @@ use tokio::sync::mpsc;
 
 use crate::llm::{ChatChunk, ChatResponse, LLMClient, Message, MessageRole, ToolCall};
 use crate::agent::session::{ChatSession, SessionManager};
-use crate::agent::tools::{data_tools, export_tools, chart_tools};
+use crate::agent::tools::{data_tools, export_tools, chart_engine};
 use crate::agent::prompts;  // ✅ 新增：导入 prompts 模块
+
+/// 常量定义
+const MAX_HISTORY_MESSAGES: usize = 20;
+const MAX_TOKENS_PROPOSE: u32 = 16384;
+const MAX_TOKENS_NORMAL: u32 = 8192;
+const PROPOSE_COMMANDS: &[&str] = &["ppt", "ppt_revise", "export", "excel_revise", 
+                                     "report", "report_revise", "dashboard", "dashboard_revise"];
 
 /// SSE 事件类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +37,7 @@ pub enum SseEvent {
     Text { content: String },
     ToolStart { tool: String, display: String },
     ToolEnd { tool: String },
+    ToolResult { tool: String, content: String },
     ChartHtml { html: String },
     ChartRef { chart_id: String },
     ChartPlaceholder { index: usize },
@@ -211,7 +219,7 @@ impl BusinessAgent {
         let mut messages = vec![Message::system(system_prompt)];
 
         // ✅ 修复：使用 recent_history() 方法获取最近的历史消息
-        for msg in session.recent_history(20) {
+        for msg in session.recent_history(MAX_HISTORY_MESSAGES) {
             let role = match msg.role.as_str() {
                 "user" => MessageRole::User,
                 "assistant" => MessageRole::Assistant,
@@ -231,12 +239,10 @@ impl BusinessAgent {
         let mut collected_text = String::new();
         let mut all_reasoning = Vec::new();
         let mut force_propose = false;
-        let propose_commands = ["ppt", "ppt_revise", "export", "excel_revise", 
-                                "report", "report_revise", "dashboard", "dashboard_revise"];
 
         for iteration in 0..max_iterations {
             // 检查停止请求
-                {
+            {
                 let should_stop = {
                     let guard = session_manager.lock().unwrap();
                     guard.get_sessions().get(&session_id).map(|s| s.cancel_requested).unwrap_or(false)
@@ -256,10 +262,10 @@ impl BusinessAgent {
             }
 
             // 确定 max_tokens
-            let max_tokens = if force_propose || params.command.as_ref().map_or(false, |c| propose_commands.contains(&c.as_str())) {
-                16384
+            let max_tokens = if force_propose || params.command.as_ref().map_or(false, |c| PROPOSE_COMMANDS.contains(&c.as_str())) {
+                MAX_TOKENS_PROPOSE
             } else {
-                8192
+                MAX_TOKENS_NORMAL
             };
 
             // 调用 LLM
@@ -270,20 +276,25 @@ impl BusinessAgent {
             // } else {
                 // 流式模式
                 let tools = crate::agent::tools_schema::get_agent_tools();  // ✅ 获取工具列表
-                let stream = client.chat_stream_with_tools(messages.clone(), &tools, None).await?;  // ✅ 传递工具列表和 tool_choice
+                let stream = client.chat_stream_with_tools(messages.clone(), &tools, Some("auto")).await?;  // ✅ 传递工具列表和 tool_choice="auto"
                 let response = Self::process_stream(
                     stream,
                     &tx,
                     &mut collected_text,
                     &mut all_reasoning,
                     &params.command,
-                    &propose_commands,
                 )
                 .await?;
 
             // 处理工具调用
             if let Some(tool_calls) = &response.tool_calls {
                 if !tool_calls.is_empty() {
+                    tracing::info!(
+                        iteration = iteration,
+                        tool_call_count = tool_calls.len(),
+                        "Tool calls detected, executing..."
+                    );
+                    
                     // 发送工具开始事件
                     for tool_call in tool_calls {
                         tx.send(SseEvent::ToolStart {
@@ -295,7 +306,23 @@ impl BusinessAgent {
                     }
 
                     // 执行工具调用
-                    let tool_results = Self::execute_tool_calls(tool_calls).await?;
+                    let tool_results = Self::execute_tool_calls(tool_calls, &tx).await?;
+
+                    // ✅ 发送工具结果事件（关键修复：让前端看到工具返回的结果）
+                    for (tool_call, result) in tool_calls.iter().zip(tool_results.iter()) {
+                        tracing::info!(
+                            tool = %tool_call.function.name,
+                            result_len = result.len(),
+                            "Tool result sent to frontend"
+                        );
+                        
+                        tx.send(SseEvent::ToolResult {
+                            tool: tool_call.function.name.clone(),
+                            content: result.clone(),
+                        })
+                        .await
+                        .ok();
+                    }
 
                     // 添加工具调用到消息历史
                     messages.push(Message::assistant_with_tools(
@@ -320,12 +347,27 @@ impl BusinessAgent {
                         .ok();
                     }
 
+                    tracing::info!(
+                        iteration = iteration,
+                        message_count = messages.len(),
+                        "Continuing to next iteration for LLM response"
+                    );
+
                     // 继续下一轮迭代
                     continue;
                 }
             }
 
             // 最终文本响应
+            tracing::info!(
+                iteration = iteration,
+                response_content_len = response.content.len(),
+                has_tool_calls = response.tool_calls.is_some(),
+                tool_call_count = response.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0),
+                response_content_preview = &response.content[..response.content.len().min(100)],
+                "Final response received"
+            );
+            
             if !all_reasoning.is_empty() {
                 tx.send(SseEvent::Reasoning {
                     content: all_reasoning.join("\n\n---\n\n"),
@@ -334,23 +376,36 @@ impl BusinessAgent {
                 .ok();
             }
 
-            tx.send(SseEvent::Text {
-                content: response.content.clone(),
-            })
-            .await
-            .ok();
+            // ✅ 只有当有内容时才保存和发送
+            if !response.content.is_empty() {
+                tracing::info!(
+                    content_len = response.content.len(),
+                    "Sending final text response to frontend"
+                );
+                
+                // 保存到会话历史（使用别名方法）
+                session.add_user(&params.user_message);
+                session.add_assistant(&response.content);
 
-            // 保存到会话历史（使用别名方法）
-            session.add_user(&params.user_message);
-            session.add_assistant(&response.content);
-
-            // 更新 session_manager 中的会话
-            {
-                let mut guard = session_manager.lock().unwrap();
-                let sessions = guard.get_sessions_mut();
-                if let Some(sess) = sessions.get_mut(&session_id) {
-                    *sess = session;
+                // 更新 session_manager 中的会话
+                {
+                    let mut guard = session_manager.lock().unwrap();
+                    let sessions = guard.get_sessions_mut();
+                    if let Some(sess) = sessions.get_mut(&session_id) {
+                        *sess = session;
+                    }
                 }
+            } else if response.tool_calls.is_none() || response.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0) == 0 {
+                tracing::warn!(
+                    iteration = iteration,
+                    "Final response has empty content AND no tool calls - this should not happen!"
+                );
+            } else {
+                tracing::info!(
+                    iteration = iteration,
+                    "Final response has empty content but has tool calls, continuing loop"
+                );
+                // 不应该到这里，因为上面已经处理了 tool_calls
             }
 
             tx.send(SseEvent::Done).await.ok();
@@ -358,11 +413,6 @@ impl BusinessAgent {
         }
 
         // 达到最大迭代次数
-        tx.send(SseEvent::Text {
-            content: "分析完成（已达到最大工具调用次数）。Analysis complete (max iterations reached).".to_string(),
-        })
-        .await
-        .ok();
         tx.send(SseEvent::Done).await.ok();
 
         Ok(())
@@ -375,11 +425,10 @@ impl BusinessAgent {
         collected_text: &mut String,
         all_reasoning: &mut Vec<String>,
         command: &Option<String>,
-        propose_commands: &[&str],
     ) -> Result<ChatResponse> {
         let mut content_parts = Vec::new();
         let mut reasoning_parts = Vec::new();
-        let mut usage_data = None;
+        // ✅ 移除 usage_data，因为 ChatChunk 没有该字段
         let mut final_tool_calls: Option<Vec<ToolCall>> = None;
 
         while let Some(chunk_result) = stream.next().await {
@@ -388,8 +437,18 @@ impl BusinessAgent {
             if let Some(content) = chunk.content {
                 content_parts.push(content.clone());
                 // 如果不是 propose 命令，实时发送文本增量
-                if !command.as_ref().map_or(false, |c| propose_commands.contains(&c.as_str())) {
+                if !command.as_ref().map_or(false, |c| PROPOSE_COMMANDS.contains(&c.as_str())) {
+                    tracing::debug!(
+                        content_len = content.len(),
+                        content_preview = &content[..content.len().min(50)],
+                        "Sending text_delta to frontend"
+                    );
                     tx.send(SseEvent::TextDelta { content }).await.ok();
+                } else {
+                    tracing::debug!(
+                        content_len = content.len(),
+                        "Skipping text_delta for propose command"
+                    );
                 }
             }
 
@@ -399,12 +458,21 @@ impl BusinessAgent {
 
             // ✅ 修正：检查是否是 tool_calls 结束
             if chunk.finish_reason == Some("tool_calls".to_string()) {
+                tracing::info!(
+                    has_tool_calls = chunk.tool_calls.is_some(),
+                    tool_call_count = chunk.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0),
+                    "Finish reason: tool_calls"
+                );
                 // 这是最终的完整工具调用列表
                 final_tool_calls = chunk.tool_calls;
                 break; // 结束流处理
             }
 
             if chunk.finish_reason == Some("stop".to_string()) {
+                tracing::info!(
+                    content_len = content_parts.iter().map(|c| c.len()).sum::<usize>(),
+                    "Finish reason: stop (final text response)"
+                );
                 break;
             }
         }
@@ -425,14 +493,17 @@ impl BusinessAgent {
         Ok(ChatResponse {
             content: full_content,
             reasoning: reasoning_content,
-            usage: usage_data,
+            usage: None,  // ✅ 流式模式下暂不支持 usage 统计
             tool_calls: final_tool_calls,  // ✅ 使用累积的最终结果
         })
     }
 
     /// 执行工具调用
-    async fn execute_tool_calls(tool_calls: &[ToolCall]) -> Result<Vec<String>> {
-        let mut results = Vec::new();
+    async fn execute_tool_calls(
+        tool_calls: &[ToolCall],
+        tx: &mpsc::Sender<SseEvent>,
+    ) -> Result<Vec<String>> {
+        let mut results = Vec::with_capacity(tool_calls.len());
 
         for tool_call in tool_calls {
             let function_name = &tool_call.function.name;
@@ -440,10 +511,21 @@ impl BusinessAgent {
                 .context(format!("Failed to parse arguments for tool: {}", function_name))?;
 
             let result = match function_name.as_str() {
-                // 数据查询工具
                 "get_schema" => {
+                    // ✅ 添加调试日志
+                    eprintln!("[DEBUG] Calling tool_get_schema()...");
+                    let df_guard = crate::state::GLOBAL_DF.lock().unwrap();
+                    eprintln!("[DEBUG] GLOBAL_DF is_some: {}", df_guard.is_some());
+                    if let Some(df) = df_guard.as_ref() {
+                        eprintln!("[DEBUG] DataFrame shape: {} rows, {} cols", df.height(), df.width());
+                    }
+                    drop(df_guard); // ✅ 释放锁
+                    
                     data_tools::tool_get_schema()
-                        .unwrap_or_else(|e| format!("Error: {}", e))
+                        .unwrap_or_else(|e| {
+                            eprintln!("[DEBUG] tool_get_schema error: {}", e);
+                            format!("Error: {}", e)
+                        })
                 }
                 "query_data" => {
                     let sql = arguments["sql"].as_str().unwrap_or("");
@@ -527,12 +609,12 @@ impl BusinessAgent {
                 
                 // 图表生成工具
                 "generate_chart" => {
-                    let chart_type = arguments["chart_type"].as_str().unwrap_or("bar");
+                    let chart_type = arguments["chart_type"].as_str().unwrap_or("Bar_Chart");
                     let title = arguments["title"].as_str().unwrap_or("图表").to_string();
                     let color_scheme = arguments["color_scheme"].as_str().unwrap_or("mckinsey").to_string();
                     
-                    // 解析字段映射
-                    let field_mapping = chart_tools::FieldMapping {
+                    // ✅ 解析字段映射（使用 chart_engine::FieldMapping）
+                    let field_mapping = chart_engine::FieldMapping {
                         x: arguments["x"].as_str().map(|s| s.to_string()),
                         y: arguments["y"].as_str().map(|s| s.to_string()),
                         series: arguments["series"].as_str().map(|s| s.to_string()),
@@ -541,27 +623,66 @@ impl BusinessAgent {
                         size: arguments["size"].as_str().map(|s| s.to_string()),
                         color: arguments["color"].as_str().map(|s| s.to_string()),
                         group: arguments["group"].as_str().map(|s| s.to_string()),
-                        order: arguments["order"].as_str().map(|s| s.to_string()),
+                        source: arguments["source"].as_str().map(|s| s.to_string()),
+                        target: arguments["target"].as_str().map(|s| s.to_string()),
                         dimensions: arguments["dimensions"].as_array().map(|arr| {
                             arr.iter()
                                 .filter_map(|v| v.as_str())
                                 .map(|s| s.to_string())
                                 .collect()
                         }),
+                        parents: arguments["parents"].as_str().map(|s| s.to_string()),
+                        labels: arguments["labels"].as_str().map(|s| s.to_string()),
+                        values: arguments["values"].as_str().map(|s| s.to_string()),
+                        order: arguments["order"].as_str().map(|s| s.to_string()),
                     };
                     
-                    let options = chart_tools::ChartOptions {
-                        title,
-                        color_scheme,
-                        sort: arguments["sort"].as_bool().unwrap_or(true),
-                        top_n: arguments["top_n"].as_u64().map(|n| n as usize),
+                    // ✅ 构建图表选项（使用 chart_engine::ChartOptions）
+                    let options = chart_engine::ChartOptions {
+                        title: Some(title),
+                        color_scheme: Some(color_scheme),
                         orientation: arguments["orientation"].as_str().map(|s| s.to_string()),
+                        sort: arguments["sort"].as_bool(),
+                        top_n: arguments["top_n"].as_u64().map(|n| n as usize),
+                        width: Some(800),
+                        height: Some(600),
                     };
                     
-                    match chart_tools::tool_generate_chart(chart_type, field_mapping, options) {
+                    // ✅ 从全局 DataFrame 提取数据 - 立即克隆并释放锁
+                    let df = {
+                        let df_guard = crate::state::GLOBAL_DF.lock().unwrap();
+                        match df_guard.as_ref() {
+                            Some(df) => df.clone(),
+                            None => {
+                                results.push("Error: No data loaded. Please load data first using query_data or create_analysis_table.".to_string());
+                                continue;
+                            }
+                        }
+                    }; // ✅ 锁在此处自动释放
+                    
+                    // ✅ 将 DataFrame 转换为 Vec<HashMap>
+                    let data = match Self::dataframe_to_hashmaps(&df) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            results.push(format!("Error converting data: {}", e));
+                            continue;
+                        }
+                    };
+                    
+                    // ✅ 调用 chart_engine::generate_chart（使用 Plotly 生成 HTML）
+                    let result = if data.is_empty() {
+                        Err(anyhow::anyhow!("No data available"))
+                    } else {
+                        chart_engine::generate_chart(chart_type, data, field_mapping, options)
+                    };
+                    
+                    match result {
                         Ok(chart_result) => {
-                            // 返回 ECharts spec 的 JSON 字符串
-                            serde_json::to_string_pretty(&chart_result.echarts_spec).unwrap_or_default()
+                            // ✅ 直接发送 HTML（Plotly 已生成完整 HTML）
+                            tx.send(SseEvent::ChartHtml { html: chart_result.html }).await.ok();
+                            
+                            // ✅ 返回简化消息给 LLM
+                            format!("Chart generated successfully (type: {})", chart_type)
                         }
                         Err(e) => format!("Error: {}", e),
                     }
@@ -670,5 +791,85 @@ impl BusinessAgent {
         // TODO: 实现看板生成逻辑
         tx.send(SseEvent::Done).await.ok();
         Ok(())
+    }
+
+    /// ✅ 辅助函数：将 ECharts spec JSON 转换为 HTML（已废弃，保留用于兼容）
+    #[deprecated = "Use chart_engine::generate_chart instead"]
+    fn echarts_spec_to_html(echarts_json: &str, title: &str) -> String {
+        format!(
+            r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{title}</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        body {{ margin: 0; padding: 20px; font-family: Arial, sans-serif; }}
+        #chart {{ width: 100%; height: 500px; }}
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script>
+        var chart = echarts.init(document.getElementById('chart'));
+        var option = {json};
+        chart.setOption(option);
+        window.addEventListener('resize', function() {{
+            chart.resize();
+        }});
+    </script>
+</body>
+</html>"#,
+            title = title,
+            json = echarts_json
+        )
+    }
+
+    /// ✅ 辅助函数：将 DataFrame 转换为 Vec<HashMap<String, serde_json::Value>>
+    fn dataframe_to_hashmaps(df: &polars::prelude::DataFrame) -> Result<Vec<std::collections::HashMap<String, serde_json::Value>>> {
+        use polars::prelude::*;
+        
+        let n_rows = df.height();
+        let column_names = df.get_column_names(); // ✅ 重命名避免与后续变量冲突
+        
+        let mut result = Vec::with_capacity(n_rows);
+        
+        for row_idx in 0..n_rows {
+            let mut row_map = std::collections::HashMap::new();
+            
+            for col_name in &column_names { // ✅ 使用引用避免移动
+                let column = df.column(col_name)?;
+                let value = match column.dtype() {
+                    DataType::String => {
+                        column.str()?.get(row_idx).map(|s| serde_json::Value::String(s.to_string()))
+                    }
+                    DataType::Int64 | DataType::Int32 | DataType::Int16 | DataType::Int8 => {
+                        column.i64()?.get(row_idx).map(|v| serde_json::Value::Number(serde_json::Number::from(v)))
+                    }
+                    DataType::Float64 | DataType::Float32 => {
+                        column.f64()?.get(row_idx).and_then(|v| {
+                            serde_json::Number::from_f64(v).map(serde_json::Value::Number)
+                        })
+                    }
+                    DataType::Boolean => {
+                        column.bool()?.get(row_idx).map(serde_json::Value::Bool)
+                    }
+                    _ => {
+                        // 其他类型转换为字符串
+                        column.str()?.get(row_idx).map(|s| serde_json::Value::String(s.to_string()))
+                    }
+                };
+                
+                if let Some(val) = value {
+                    row_map.insert(col_name.to_string(), val);
+                } else {
+                    row_map.insert(col_name.to_string(), serde_json::Value::Null);
+                }
+            }
+            
+            result.push(row_map);
+        }
+        
+        Ok(result)
     }
 }

@@ -483,17 +483,59 @@ function handleClearChat() {
   }
 }
 
-function handleUploadFile(file: File) {
-  uploadedFileInfo.value = {
-    name: file.name,
-    size: file.size,
-    file,
+async function handleUploadFile(file: File) {
+  try {
+    // ✅ 保存文件信息到前端状态
+    uploadedFileInfo.value = {
+      name: file.name,
+      size: file.size,
+      file,
+    }
+    
+    // ✅ 自动选中上传的数据源
+    if (!selectedDatasources.value.includes('upload')) {
+      selectedDatasources.value.push('upload')
+    }
+    
+    // ✅ 将文件保存到临时目录
+    const { appDataDir } = await import('@tauri-apps/api/path')
+    const { writeFile, mkdir, exists } = await import('@tauri-apps/plugin-fs')
+    
+    // 获取应用数据目录
+    const appDataPath = await appDataDir()
+    const tempDirPath = `${appDataPath}/temp_uploads`
+    const tempFilePath = `${tempDirPath}/temp_upload_${Date.now()}_${file.name}`
+    
+    // ✅ 确保目录存在
+    if (!(await exists(tempDirPath))) {
+      await mkdir(tempDirPath, { recursive: true })
+    }
+    
+    // 读取文件并保存到临时位置
+    const fileBytes = await file.arrayBuffer()
+    await writeFile(tempFilePath, new Uint8Array(fileBytes))
+    
+    // ✅ 调用后端 load_file 命令加载数据到 GLOBAL_DF
+    const { invoke } = await import('@tauri-apps/api/core')
+    const result: any = await invoke('load_file', {
+      path: tempFilePath,
+      skipHead: 0,
+      skipTail: 0,
+      headerRow: -1,
+      headerLocked: false,
+    })
+    
+    if (result.ok) {
+      ElMessage.success(`文件 "${file.name}" 已加载，共 ${result.data?.total_rows || 0} 行`)
+    } else {
+      ElMessage.error(result.error || '文件加载失败')
+      uploadedFileInfo.value = null
+    }
+  } catch (error) {
+    console.error('[AgentChat] handleUploadFile failed:', error)
+    ElMessage.error(`上传失败: ${error instanceof Error ? error.message : String(error)}`)
+    uploadedFileInfo.value = null
   }
-  // 自动选中上传的数据源
-  if (!selectedDatasources.value.includes('upload')) {
-    selectedDatasources.value.push('upload')
-  }
-  ElMessage.success(`已选择文件: ${file.name}`)
 }
 
 function handleOutlineAction(payload: {
