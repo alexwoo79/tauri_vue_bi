@@ -191,14 +191,18 @@ pub fn tool_generate_chart(
     let df_guard = GLOBAL_DF.lock().unwrap();
     let df = df_guard.as_ref().context("没有加载的数据集")?;
 
+    // ✅ 修复：统一使用大驼峰命名，与 Python 版本保持一致
     match chart_type {
-        "bar" | "bar_chart" => generate_bar_chart(df, field_mapping, options),
-        "line" | "line_chart" => generate_line_chart(df, field_mapping, options),
-        "pie" | "pie_chart" => generate_pie_chart(df, field_mapping, options),
-        "scatter" | "scatter_plot" => generate_scatter_chart(df, field_mapping, options),
-        "area" | "area_chart" => generate_area_chart(df, field_mapping, options),
-        "heatmap" | "heat_map" => generate_heatmap_chart(df, field_mapping, options),
-        "boxplot" | "box_plot" | "box-and-whisker" => generate_boxplot_chart(df, field_mapping, options),
+        "Bar_Chart" | "bar" | "bar_chart" => generate_bar_chart(df, field_mapping, options),
+        "Grouped_Bar_Chart" | "grouped_bar" => generate_grouped_bar_chart(df, field_mapping, options),
+        "Stacked_Bar_Chart" | "stacked_bar" => generate_stacked_bar_chart(df, field_mapping, options),
+        "Line_Chart" | "line" | "line_chart" => generate_line_chart(df, field_mapping, options),
+        "Pie_Chart" | "pie" | "pie_chart" => generate_pie_chart(df, field_mapping, options),
+        "Scatter_Plot" | "scatter" | "scatter_plot" => generate_scatter_chart(df, field_mapping, options),
+        "Area_Chart" | "area" | "area_chart" => generate_area_chart(df, field_mapping, options),
+        "Heatmap" | "heatmap" | "heat_map" => generate_heatmap_chart(df, field_mapping, options),
+        "Bubble_Plot" | "bubble" => generate_bubble_chart(df, field_mapping, options),
+        "Box-and-Whisker_Plot" | "boxplot" | "box_plot" | "box-and-whisker" => generate_boxplot_chart(df, field_mapping, options),
         _ => Err(anyhow::anyhow!("Unsupported chart type: {}", chart_type)),
     }
 }

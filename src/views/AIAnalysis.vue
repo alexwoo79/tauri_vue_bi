@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Setting, ArrowLeft, ArrowDown, ArrowUp, DataLine, Document, DocumentCopy } from '@element-plus/icons-vue'
+import { Setting, ArrowLeft, ArrowDown, ArrowUp, DataLine, Document, DocumentCopy, Refresh } from '@element-plus/icons-vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useSessionStore } from '../stores/sessionStore'
 import { useDataStore } from '../stores/dataStore'
@@ -234,6 +234,18 @@ watch(
 )
 
 watch(
+  () => selectedDatasources.value.join(','),
+  () => {
+    // 当数据源选择变化时，清除指纹缓存，强制下次重新同步
+    if (sessionStore.currentSessionId) {
+      console.info('[AIAnalysis] 数据源选择变化，清除同步缓存')
+      delete remoteDataSyncMap.value[sessionStore.currentSessionId]
+      saveRemoteDataSyncMap()
+    }
+  }
+)
+
+watch(
   () => {
     const payload = dataStore.payload
     const cols = payload?.columns.map((c) => `${c.name}:${c.dtype}`).join('|') || ''
@@ -241,10 +253,28 @@ watch(
     const total = payload?.total_rows || 0
     return `${dataStore.activeDatasetId}|${cols}|${rows}|${total}`
   },
-  () => {
-    if (!pythonAgentReady.value || !sessionStore.currentSessionId) return
+  (newFingerprint, oldFingerprint) => {
+    // ✅ 修复：即使 Python Agent 未就绪，也要记录日志
+    if (!pythonAgentReady.value) {
+      console.warn('[AIAnalysis] Python Agent 未就绪，数据切换但未同步')
+      return
+    }
+    if (!sessionStore.currentSessionId) {
+      console.warn('[AIAnalysis] 当前会话 ID 为空，数据切换但未同步')
+      return
+    }
+    
+    // ✅ 修复：添加调试日志，确认指纹变化
+    if (newFingerprint !== oldFingerprint) {
+      console.info('[AIAnalysis] 数据指纹变化，触发同步:', {
+        old: oldFingerprint?.substring(0, 50) + '...',
+        new: newFingerprint.substring(0, 50) + '...',
+      })
+    }
+    
     void ensureRemoteDatasourceBound(sessionStore.currentSessionId)
-  }
+  },
+  { immediate: true }  // ✅ 确保初始化时也执行
 )
 
 // ────────────────────────────────────────────────────────────
@@ -445,57 +475,97 @@ function dataFingerprint(payload: ChartPayload): string {
 }
 
 async function ensureRemoteDatasourceBound(localSessionId: string) {
-  if (!pythonAgentReady.value) return
+  if (!pythonAgentReady.value) {
+    console.warn('[AIAnalysis] ensureRemoteDatasourceBound: Python Agent 未就绪')
+    return
+  }
+  
   const remoteId = remoteSessionMap.value[localSessionId]
-  if (!remoteId) return
+  if (!remoteId) {
+    console.warn('[AIAnalysis] ensureRemoteDatasourceBound: 找不到远程会话 ID', { localSessionId })
+    return
+  }
 
   const wantDataset = selectedDatasources.value.includes('dataset') && !!dataStore.payload
   const wantUpload = selectedDatasources.value.includes('upload') && !!uploadedFileInfo.value
-  if (!wantDataset && !wantUpload) return
+  
+  if (!wantDataset && !wantUpload) {
+    console.info('[AIAnalysis] ensureRemoteDatasourceBound: 没有选择任何数据源')
+    return
+  }
 
   const datasetFp = wantDataset ? dataFingerprint(dataStore.payload!) : ''
   const uploadFp = uploadedFileInfo.value ? `${uploadedFileInfo.value.name}:${uploadedFileInfo.value.size}` : ''
   const selectedFp = [...selectedDatasources.value].sort().join(',')
   const combinedFp = `ds:${datasetFp}|up:${uploadFp}|sel:${selectedFp}`
 
-  if (remoteDataSyncMap.value[localSessionId] === combinedFp) return
-
-  // 1) 先上传主数据源（无 append）
-  if (wantDataset) {
-    const csv = chartPayloadToCsv(dataStore.payload!)
-    const fileNameBase = dataStore.datasets.find((d) => d.id === dataStore.activeDatasetId)?.name || 'dataset_snapshot'
-    const csvFile = new File([csv], `${fileNameBase}.csv`, { type: 'text/csv' })
-    const fd = new FormData()
-    fd.append('file', csvFile)
-    const resp = await fetch(`${pythonAgentBaseUrl.value}/api/session/${remoteId}/upload`, {
-      method: 'POST',
-      headers: withSidecarHeaders(),
-      body: fd,
-    })
-    if (!resp.ok) {
-      const body = await resp.text()
-      throw new Error(`远端数据上传失败(${resp.status}): ${body}`)
-    }
+  // ✅ 修复：添加详细日志，确认指纹比较
+  if (remoteDataSyncMap.value[localSessionId] === combinedFp) {
+    console.info('[AIAnalysis] ensureRemoteDatasourceBound: 数据指纹未变化，跳过同步')
+    return
   }
 
-  // 2) 若还选择了手动上传文件，则追加合并
-  if (wantUpload) {
-    const fd = new FormData()
-    fd.append('file', uploadedFileInfo.value!.file)
-    const append = wantDataset ? '?append=true' : ''
-    const resp = await fetch(`${pythonAgentBaseUrl.value}/api/session/${remoteId}/upload${append}`, {
-      method: 'POST',
-      headers: withSidecarHeaders(),
-      body: fd,
-    })
-    if (!resp.ok) {
-      const body = await resp.text()
-      throw new Error(`手动上传文件同步失败(${resp.status}): ${body}`)
-    }
-  }
+  console.info('[AIAnalysis] ensureRemoteDatasourceBound: 开始同步数据', {
+    localSessionId,
+    remoteId,
+    wantDataset,
+    wantUpload,
+    datasetFp: datasetFp.substring(0, 50) + '...',
+    combinedFp: combinedFp.substring(0, 80) + '...',
+  })
 
-  remoteDataSyncMap.value[localSessionId] = combinedFp
-  saveRemoteDataSyncMap()
+  try {
+    // 1) 先上传主数据源（无 append）
+    if (wantDataset) {
+      console.info('[AIAnalysis] 上传 BI 数据集到 Python Agent...')
+      const csv = chartPayloadToCsv(dataStore.payload!)
+      const fileNameBase = dataStore.datasets.find((d) => d.id === dataStore.activeDatasetId)?.name || 'dataset_snapshot'
+      const csvFile = new File([csv], `${fileNameBase}.csv`, { type: 'text/csv' })
+      const fd = new FormData()
+      fd.append('file', csvFile)
+      
+      const resp = await fetch(`${pythonAgentBaseUrl.value}/api/session/${remoteId}/upload`, {
+        method: 'POST',
+        headers: withSidecarHeaders(),
+        body: fd,
+      })
+      
+      if (!resp.ok) {
+        const body = await resp.text()
+        throw new Error(`远端数据上传失败(${resp.status}): ${body}`)
+      }
+      
+      console.info('[AIAnalysis] ✅ BI 数据集上传成功')
+    }
+
+    // 2) 若还选择了手动上传文件，则追加合并
+    if (wantUpload) {
+      console.info('[AIAnalysis] 上传手动文件到 Python Agent...')
+      const fd = new FormData()
+      fd.append('file', uploadedFileInfo.value!.file)
+      const append = wantDataset ? '?append=true' : ''
+      const resp = await fetch(`${pythonAgentBaseUrl.value}/api/session/${remoteId}/upload${append}`, {
+        method: 'POST',
+        headers: withSidecarHeaders(),
+        body: fd,
+      })
+      
+      if (!resp.ok) {
+        const body = await resp.text()
+        throw new Error(`手动上传文件同步失败(${resp.status}): ${body}`)
+      }
+      
+      console.info('[AIAnalysis] ✅ 手动文件上传成功')
+    }
+
+    remoteDataSyncMap.value[localSessionId] = combinedFp
+    saveRemoteDataSyncMap()
+    
+    console.info('[AIAnalysis] ✅ 数据同步完成，已更新指纹')
+  } catch (error) {
+    console.error('[AIAnalysis] ensureRemoteDatasourceBound 失败:', error)
+    ElMessage.error(`数据同步失败: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 function setDatasourceSelected(source: DatasourceChoice, checked: boolean) {
@@ -1011,10 +1081,31 @@ function handleOutlineAction(payload: {
   }
 
   void handleSendMessage('确认生成看板', 'dashboard_confirm', {
-    suppressUserMessage: true,
-    dashboardName: payload.name || 'Dashboard',
-    dashboardWidgets: payload.widgets || [],
+      suppressUserMessage: true,
+      dashboardName: payload.name || 'Dashboard',
+      dashboardWidgets: payload.widgets || [],
   })
+}
+
+const syncingDatasource = ref(false)
+
+async function handleManualDatasourceSync() {
+  if (!sessionStore.currentSessionId) {
+    ElMessage.warning('请先选择或创建一个会话')
+    return
+  }
+  
+  syncingDatasource.value = true
+  try {
+    console.info('[AIAnalysis] 手动触发数据同步...')
+    await ensureRemoteDatasourceBound(sessionStore.currentSessionId)
+    ElMessage.success('数据同步成功')
+  } catch (error) {
+    console.error('[AIAnalysis] 手动数据同步失败:', error)
+    ElMessage.error(`数据同步失败: ${error instanceof Error ? error.message : String(error)}`)
+  } finally {
+    syncingDatasource.value = false
+  }
 }
 
 async function handleUploadFile(file: File) {
@@ -1094,9 +1185,21 @@ function handleClearChat() {
           <template #header>
             <div class="panel-header">
               <div class="panel-title">数据源</div>
-              <el-button link class="panel-collapse-btn" @click="datasourceCollapsed = !datasourceCollapsed">
-                <el-icon><component :is="datasourceCollapsed ? ArrowDown : ArrowUp" /></el-icon>
-              </el-button>
+              <div class="panel-actions">
+                <el-button
+                  link
+                  size="small"
+                  :loading="syncingDatasource"
+                  @click="handleManualDatasourceSync"
+                  title="手动同步数据到 AI Agent"
+                >
+                  <el-icon><Refresh /></el-icon>
+                  同步
+                </el-button>
+                <el-button link class="panel-collapse-btn" @click="datasourceCollapsed = !datasourceCollapsed">
+                  <el-icon><component :is="datasourceCollapsed ? ArrowDown : ArrowUp" /></el-icon>
+                </el-button>
+              </div>
             </div>
           </template>
           <div v-show="!datasourceCollapsed" class="datasource-panel-body">
@@ -1589,6 +1692,13 @@ function handleClearChat() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* ✅ 新增：支持多个操作按钮 */
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .panel-title {

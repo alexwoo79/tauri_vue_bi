@@ -42,12 +42,15 @@ pub struct ChartResult {
     pub meta: serde_json::Value,
 }
 
-/// 获取数据源结构
+/// 获取数据源结构（参考 Python 版本格式，包含表名）
 pub fn tool_get_schema() -> Result<String> {
     let df_guard = GLOBAL_DF.lock().unwrap();
     let df = df_guard.as_ref().context("没有加载的数据集")?;
     
     let mut schema_parts = Vec::new();
+    
+    // 表名固定为 "data"（与 SQLContext 注册名一致）
+    schema_parts.push(format!("Table: data  ({} rows)", df.height()));
     
     for field in df.schema().iter_fields() {
         let dtype_str = match field.dtype() {
@@ -62,17 +65,54 @@ pub fn tool_get_schema() -> Result<String> {
         schema_parts.push(format!("  {}  {}", field.name(), dtype_str));
     }
     
-    Ok(format!(
-        "DataFrame Schema ({} rows, {} columns):\n{}",
-        df.height(),
-        df.width(),
-        schema_parts.join("\n")
-    ))
+    Ok(schema_parts.join("\n"))
 }
 
-/// 执行 SQL 查询（使用 Polars SQL 上下文）
+const MAX_DISPLAY_ROWS: usize = 200;  // 与 Python 版本保持一致
+
+/// 执行 SQL 查询（使用 Polars SQL 上下文，参考 Python format_result 格式）
 pub fn tool_query_data(sql: &str) -> Result<String> {
-    Err(anyhow::anyhow!("Polars SQL support not available in this build (tool_query_data not implemented)."))
+    let df_guard = GLOBAL_DF.lock().unwrap();
+    let df = df_guard.as_ref().context("没有加载的数据集")?;
+    
+    // 创建 SQL 上下文并注册 DataFrame
+    let mut ctx = SQLContext::new();
+    ctx.register("data", df.clone().lazy());
+    
+    // 执行 SQL 查询
+    let result = ctx
+        .execute(sql)
+        .map_err(|e| anyhow::anyhow!("SQL Error: {}", e))?
+        .collect()
+        .context("SQL 查询结果收集失败")?;
+    
+    // 处理空结果
+    if result.height() == 0 {
+        return Ok("Query returned no results.".to_string());
+    }
+    
+    // 获取预览数据（最多 200 行）
+    let total_rows = result.height();
+    let preview = if total_rows > MAX_DISPLAY_ROWS {
+        result.head(Some(MAX_DISPLAY_ROWS))
+    } else {
+        result.clone()
+    };
+    
+    // 格式化为表格字符串（参考 Python 的 to_string(index=False, max_cols=30)）
+    let table_str = format_dataframe(&preview);
+    
+    // 添加行数提示
+    let mut output = table_str;
+    if total_rows > MAX_DISPLAY_ROWS {
+        output.push_str(&format!(
+            "\n\n... showing {} of {} rows",
+            MAX_DISPLAY_ROWS,
+            total_rows
+        ));
+    }
+    
+    Ok(output)
 }
 
 /// 运行分析（分位数分析、决策树等）
@@ -178,20 +218,43 @@ pub fn tool_clean_data(
     }
 }
 
-/// 格式化 DataFrame 为文本
+/// 格式化 DataFrame 为文本（参考 Python pandas to_string(index=False, max_cols=30)）
 fn format_dataframe(df: &DataFrame) -> String {
-    let headers: Vec<&str> = df.get_column_names().iter().map(|s| s.as_str()).collect();
-    let header_line = headers.join("\t");
+    let max_cols = 30;
+    let cols_to_display = std::cmp::min(df.width(), max_cols);
     
+    // 获取列名
+    let col_names = df.get_column_names();
+    let headers: Vec<&str> = col_names
+        .iter()
+        .take(cols_to_display)
+        .map(|s| s.as_str())
+        .collect();
+    
+    let header_line = headers.join("  ");
     let mut lines = vec![header_line];
     
-    for row_idx in 0..std::cmp::min(df.height(), 50) {
+    // 显示所有行（已由调用者处理行数限制）
+    let columns = df.get_columns();
+    for row_idx in 0..df.height() {
         let mut row_values = Vec::new();
-        for col in df.get_columns() {
-            let value = col.get(row_idx).map(|av| format!("{:?}", av)).unwrap_or_else(|_| "null".to_string());
+        for col_idx in 0..cols_to_display {
+            let col = &columns[col_idx];
+            let value = col.get(row_idx)
+                .map(|av| match av {
+                    AnyValue::Null => "null".to_string(),
+                    AnyValue::String(s) => s.to_string(),
+                    AnyValue::Int32(v) => v.to_string(),
+                    AnyValue::Int64(v) => v.to_string(),
+                    AnyValue::Float32(v) => format!("{:.2}", v),
+                    AnyValue::Float64(v) => format!("{:.2}", v),
+                    AnyValue::Boolean(v) => v.to_string(),
+                    _ => format!("{:?}", av),
+                })
+                .unwrap_or_else(|_| "null".to_string());
             row_values.push(value);
         }
-        lines.push(row_values.join("\t"));
+        lines.push(row_values.join("  "));
     }
     
     lines.join("\n")

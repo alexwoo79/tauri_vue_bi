@@ -330,6 +330,19 @@ impl ChartRegistry {
             constraints: "适合四维数据展示".to_string(),
         });
         
+        // ✅ 添加 Scatter_Plot 注册（与 Python 版本对齐）
+        self.register(ChartMetadata {
+            chart_id: "Scatter_Plot".to_string(),
+            name: "散点图".to_string(),
+            category: "关系类 RELATIONSHIP".to_string(),
+            min_fields: 2,
+            required_roles: vec!["x".to_string(), "y".to_string()],
+            optional_roles: vec!["size".to_string(), "color".to_string()],
+            desc: "展示两个数值变量之间的关系，支持正相关、负相关或无相关检测。可用size表示第三维度（数值），用color区分分组类别。".to_string(),
+            data_format: "x(数值), y(数值), size(数值,可选), color(文本/数值,可选)".to_string(),
+            constraints: "x和y必须为数值列，至少需要两个有效数据点。缺失值自动删除，大量重叠点建议使用透明度或hexbin热力图。".to_string(),
+        });
+        
         self.register(ChartMetadata {
             chart_id: "Radar_Chart".to_string(),
             name: "雷达图".to_string(),
@@ -436,6 +449,7 @@ pub fn generate_chart(
         "Histogram_Pareto_chart" => generate_histogram(data, mapping, options),
         "Waterfall" => generate_waterfall(data, mapping, options),
         "Sankey_Chart" => generate_sankey_chart(data, mapping, options),
+        "Scatter_Plot" => generate_scatter_plot(data, mapping, options),  // ✅ 添加散点图
         "Bubble_Plot" => generate_bubble_plot(data, mapping, options),
         "Pie_Chart" => generate_pie_chart(data, mapping, options),
         "Radar_Chart" => generate_radar_chart(data, mapping, options),
@@ -1157,6 +1171,66 @@ fn generate_sankey_chart(
     });
     
     Ok(ChartResult::success(html, "Sankey_Chart", meta))
+}
+
+/// 生成散点图（Scatter Plot）
+fn generate_scatter_plot(
+    data: Vec<HashMap<String, serde_json::Value>>,
+    mapping: FieldMapping,
+    options: ChartOptions,
+) -> Result<ChartResult> {
+    use plotly::Scatter;
+    use plotly::common::Mode;
+    
+    let x_col = mapping.x.context("Missing x field")?;
+    let y_col = mapping.y.context("Missing y field")?;
+    
+    let mut x_values: Vec<f64> = Vec::new();
+    let mut y_values: Vec<f64> = Vec::new();
+    
+    for row in &data {
+        if let (Some(x), Some(y)) = (
+            row.get(&x_col).and_then(|v| v.as_f64()),
+            row.get(&y_col).and_then(|v| v.as_f64())
+        ) {
+            x_values.push(x);
+            y_values.push(y);
+        }
+    }
+    
+    if x_values.is_empty() {
+        return Ok(ChartResult::error("No valid data"));
+    }
+    
+    let trace = Scatter::new(x_values, y_values)
+        .mode(Mode::Markers)
+        .name(&options.title.clone().unwrap_or("Scatter Plot".to_string()))
+        .marker(
+            plotly::common::Marker::new()
+                .opacity(0.6)
+                .size(8)
+        );
+    
+    let mut plot = Plot::new();
+    plot.add_trace(trace);
+    
+    let layout = Layout::new()
+        .title(Title::new())
+        .width(options.width.unwrap_or(800) as usize)
+        .height(options.height.unwrap_or(600) as usize);
+    
+    plot.set_layout(layout);
+    
+    let html = plot.to_html();
+    
+    let meta = serde_json::json!({
+        "chart_id": "Scatter_Plot",
+        "n_rows": data.len(),
+        "x_col": x_col,
+        "y_col": y_col,
+    });
+    
+    Ok(ChartResult::success(html, "Scatter_Plot", meta))
 }
 
 /// 生成气泡图

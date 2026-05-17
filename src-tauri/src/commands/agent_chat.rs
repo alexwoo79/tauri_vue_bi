@@ -13,7 +13,7 @@ use crate::agent::state_machine::{BusinessAgent as AgentStateMachine, AgentRunPa
 // ✅ 使用 include_str! 直接嵌入工具 schema JSON，避免模块依赖
 use crate::commands::chart::fetch_chart_data_impl;
 use crate::df_util::df_to_payload;
-use crate::llm::{LLMClient, Message, MessageRole, OpenAIClient};
+use crate::llm::{LLMClient, Message, MessageRole, OpenAIClient,};
 use crate::state::GLOBAL_DF;
 
 // ✅ 新增：全局图表存储（用于存储生成的图表 HTML）
@@ -123,6 +123,15 @@ struct ChatMessage {
     role: String,
     content: String,
     timestamp: u64,
+    /// ✅ 新增：支持 reasoning_content（用于 thinking 模型）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_content: Option<String>,
+    /// ✅ 新增：支持 tool_call_id（用于工具调用结果）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+    /// ✅ 新增：支持 tool_calls（用于 assistant 的工具调用）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<crate::llm::ToolCall>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +194,9 @@ impl SessionManager {
             role: role.to_string(),
             content: content.to_string(),
             timestamp: now,
+            reasoning_content: None, // ✅ 普通消息不包含 reasoning_content
+            tool_call_id: None,
+            tool_calls: None,
         });
         session.updated_at = now;
         if session.title == "新会话" && role == "user" {
@@ -694,13 +706,22 @@ pub async fn chat_stream(
             new_session.created_at = local_session.created_at;
             new_session.updated_at = local_session.updated_at;
             
-            // 迁移消息
+            // 迁移消息 - ✅ 完整保留所有字段
             for msg in &local_session.messages {
-                if msg.role == "user" {
-                    new_session.add_user_message(&msg.content);
-                } else if msg.role == "assistant" {
-                    new_session.add_assistant_message(&msg.content);
-                }
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+                
+                // ✅ 直接创建完整的 ChatMessage，保留所有字段
+                new_session.messages.push(crate::agent::session::ChatMessage {
+                    role: msg.role.clone(),
+                    content: msg.content.clone(),
+                    timestamp: now,
+                    reasoning_content: msg.reasoning_content.clone(), // ✅ 迁移 reasoning_content
+                    tool_call_id: msg.tool_call_id.clone(),
+                    tool_calls: msg.tool_calls.clone(),
+                });
             }
             
             agent_mgr.get_sessions_mut().insert(id.clone(), new_session);
@@ -764,7 +785,12 @@ pub async fn chat_stream(
                 })).ok();
             }
             SseEvent::ToolResult { tool, content } => {
-                // ✅ 转发工具结果到前端（关键修复：让前端看到工具返回的数据）
+                // ✅ 关键修复：转发工具结果到前端，让LLM能看到工具返回的数据
+                tracing::info!(
+                    tool = %tool,
+                    content_len = content.len(),
+                    "ToolResult event forwarded to frontend"
+                );
                 app.emit("sse-event", serde_json::json!({
                     "type": "tool_result",
                     "tool": tool,
@@ -797,12 +823,6 @@ pub async fn chat_stream(
                 app.emit("sse-event", serde_json::json!({
                     "type": "chart_placeholder",
                     "index": index
-                })).ok();
-            }
-            SseEvent::Reasoning { content } => {
-                app.emit("sse-event", serde_json::json!({
-                    "type": "reasoning",
-                    "content": content
                 })).ok();
             }
             SseEvent::Usage {

@@ -41,7 +41,6 @@ pub enum SseEvent {
     ChartHtml { html: String },
     ChartRef { chart_id: String },
     ChartPlaceholder { index: usize },
-    Reasoning { content: String },
     Usage {
         prompt_tokens: u32,
         completion_tokens: u32,
@@ -223,21 +222,41 @@ impl BusinessAgent {
             let role = match msg.role.as_str() {
                 "user" => MessageRole::User,
                 "assistant" => MessageRole::Assistant,
+                "tool" => MessageRole::Tool,  // ✅ 添加工具角色支持
                 _ => MessageRole::System,
             };
-            messages.push(Message {
-                role,
-                content: msg.content.clone(),
-                tool_calls: None,
-                tool_call_id: None,
-            });
+            
+            // ✅ 根据角色创建不同类型的消息
+            let message = if msg.role == "tool" {
+                // Tool消息需要tool_call_id
+                Message::tool(
+                    msg.content.clone(),
+                    msg.tool_call_id.clone().unwrap_or_default(),
+                )
+            } else if msg.role == "assistant" && msg.tool_calls.is_some() {
+                // ✅ Assistant 消息包含 tool_calls 和 reasoning_content
+                Message::assistant_with_tools_and_reasoning(
+                    msg.content.clone(),
+                    msg.reasoning_content.clone(), // ✅ 传递 reasoning_content
+                    msg.tool_calls.clone().unwrap(),
+                )
+            } else {
+                Message {
+                    role,
+                    content: msg.content.clone(),
+                    reasoning_content: msg.reasoning_content.clone(), // ✅ 传递 reasoning_content
+                    tool_calls: None,
+                    tool_call_id: msg.tool_call_id.clone(),
+                }
+            };
+            
+            messages.push(message);
         }
 
         // 添加当前用户消息
         messages.push(Message::user(&params.user_message));
 
         let mut collected_text = String::new();
-        let mut all_reasoning = Vec::new();
         let mut force_propose = false;
 
         for iteration in 0..max_iterations {
@@ -269,32 +288,20 @@ impl BusinessAgent {
             };
 
             // 调用 LLM
-            // ✅ 暂时禁用 Claude thinking mode，统一使用流式
-            // let response = if enable_thinking && model.starts_with("claude") {
-            //     // Claude thinking mode: 非流式
-            //     client.chat(messages.clone()).await?
-            // } else {
-                // 流式模式
-                let tools = crate::agent::tools_schema::get_agent_tools();  // ✅ 获取工具列表
-                let stream = client.chat_stream_with_tools(messages.clone(), &tools, Some("auto")).await?;  // ✅ 传递工具列表和 tool_choice="auto"
-                let response = Self::process_stream(
-                    stream,
-                    &tx,
-                    &mut collected_text,
-                    &mut all_reasoning,
-                    &params.command,
-                )
-                .await?;
+            // ✅ 统一使用流式模式
+            let tools = crate::agent::tools_schema::get_agent_tools();  // ✅ 获取工具列表
+            let stream = client.chat_stream_with_tools(messages.clone(), &tools, Some("auto")).await?;  // ✅ 传递工具列表和 tool_choice="auto"
+            let response = Self::process_stream(
+                stream,
+                &tx,
+                &mut collected_text,
+                &params.command,
+            )
+            .await?;
 
             // 处理工具调用
             if let Some(tool_calls) = &response.tool_calls {
                 if !tool_calls.is_empty() {
-                    tracing::info!(
-                        iteration = iteration,
-                        tool_call_count = tool_calls.len(),
-                        "Tool calls detected, executing..."
-                    );
-                    
                     // 发送工具开始事件
                     for tool_call in tool_calls {
                         tx.send(SseEvent::ToolStart {
@@ -310,12 +317,6 @@ impl BusinessAgent {
 
                     // ✅ 发送工具结果事件（关键修复：让前端看到工具返回的结果）
                     for (tool_call, result) in tool_calls.iter().zip(tool_results.iter()) {
-                        tracing::info!(
-                            tool = %tool_call.function.name,
-                            result_len = result.len(),
-                            "Tool result sent to frontend"
-                        );
-                        
                         tx.send(SseEvent::ToolResult {
                             tool: tool_call.function.name.clone(),
                             content: result.clone(),
@@ -324,13 +325,36 @@ impl BusinessAgent {
                         .ok();
                     }
 
-                    // 添加工具调用到消息历史
-                    messages.push(Message::assistant_with_tools(
-                        response.content.clone(),
+                    // ✅ 添加工具调用到会话历史（关键修复：必须保存 tool_calls）
+                    session.add_assistant_message_with_tools_and_reasoning(
+                        &response.content,
+                        response.reasoning_content.clone(), // ✅ 传递 reasoning_content
                         tool_calls.clone(),
-                    ));
+                    );
 
-                    // 添加工具响应到消息历史
+                    // ✅ 添加工具响应到会话历史（关键修复：必须保存 tool 消息）
+                    for (tool_call, result) in tool_calls.iter().zip(tool_results.iter()) {
+                        session.add_tool_message(result, &tool_call.id);
+                    }
+
+                    // 更新 session_manager 中的会话
+                    {
+                        let mut guard = session_manager.lock().unwrap();
+                        let sessions = guard.get_sessions_mut();
+                        if let Some(sess) = sessions.get_mut(&session_id) {
+                            *sess = session.clone();
+                        }
+                    }
+
+                    // 添加工具调用到内存消息历史（用于下一轮 LLM 调用）
+                    let assistant_msg = Message::assistant_with_tools_and_reasoning(
+                        response.content.clone(),
+                        response.reasoning_content.clone(), // ✅ 传递 reasoning_content
+                        tool_calls.clone(),
+                    );
+                    messages.push(assistant_msg);
+
+                    // 添加工具响应到内存消息历史
                     for (tool_call, result) in tool_calls.iter().zip(tool_results.iter()) {
                         messages.push(Message::tool(
                             result.clone(),
@@ -347,65 +371,23 @@ impl BusinessAgent {
                         .ok();
                     }
 
-                    tracing::info!(
-                        iteration = iteration,
-                        message_count = messages.len(),
-                        "Continuing to next iteration for LLM response"
-                    );
-
                     // 继续下一轮迭代
                     continue;
                 }
             }
 
             // 最终文本响应
-            tracing::info!(
-                iteration = iteration,
-                response_content_len = response.content.len(),
-                has_tool_calls = response.tool_calls.is_some(),
-                tool_call_count = response.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0),
-                response_content_preview = &response.content[..response.content.len().min(100)],
-                "Final response received"
-            );
-            
-            if !all_reasoning.is_empty() {
-                tx.send(SseEvent::Reasoning {
-                    content: all_reasoning.join("\n\n---\n\n"),
-                })
-                .await
-                .ok();
-            }
+            // 保存到会话历史
+            session.add_user(&params.user_message);
+            session.add_assistant(&response.content);
 
-            // ✅ 只有当有内容时才保存和发送
-            if !response.content.is_empty() {
-                tracing::info!(
-                    content_len = response.content.len(),
-                    "Sending final text response to frontend"
-                );
-                
-                // 保存到会话历史（使用别名方法）
-                session.add_user(&params.user_message);
-                session.add_assistant(&response.content);
-
-                // 更新 session_manager 中的会话
-                {
-                    let mut guard = session_manager.lock().unwrap();
-                    let sessions = guard.get_sessions_mut();
-                    if let Some(sess) = sessions.get_mut(&session_id) {
-                        *sess = session;
-                    }
+            // 更新 session_manager 中的会话
+            {
+                let mut guard = session_manager.lock().unwrap();
+                let sessions = guard.get_sessions_mut();
+                if let Some(sess) = sessions.get_mut(&session_id) {
+                    *sess = session;
                 }
-            } else if response.tool_calls.is_none() || response.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0) == 0 {
-                tracing::warn!(
-                    iteration = iteration,
-                    "Final response has empty content AND no tool calls - this should not happen!"
-                );
-            } else {
-                tracing::info!(
-                    iteration = iteration,
-                    "Final response has empty content but has tool calls, continuing loop"
-                );
-                // 不应该到这里，因为上面已经处理了 tool_calls
             }
 
             tx.send(SseEvent::Done).await.ok();
@@ -423,12 +405,10 @@ impl BusinessAgent {
         mut stream: Pin<Box<dyn Stream<Item = Result<ChatChunk>> + Send>>,
         tx: &mpsc::Sender<SseEvent>,
         collected_text: &mut String,
-        all_reasoning: &mut Vec<String>,
         command: &Option<String>,
     ) -> Result<ChatResponse> {
         let mut content_parts = Vec::new();
-        let mut reasoning_parts = Vec::new();
-        // ✅ 移除 usage_data，因为 ChatChunk 没有该字段
+        let mut reasoning_parts = Vec::new(); // ✅ 收集 reasoning_content
         let mut final_tool_calls: Option<Vec<ToolCall>> = None;
 
         while let Some(chunk_result) = stream.next().await {
@@ -438,63 +418,41 @@ impl BusinessAgent {
                 content_parts.push(content.clone());
                 // 如果不是 propose 命令，实时发送文本增量
                 if !command.as_ref().map_or(false, |c| PROPOSE_COMMANDS.contains(&c.as_str())) {
-                    tracing::debug!(
-                        content_len = content.len(),
-                        content_preview = &content[..content.len().min(50)],
-                        "Sending text_delta to frontend"
-                    );
                     tx.send(SseEvent::TextDelta { content }).await.ok();
-                } else {
-                    tracing::debug!(
-                        content_len = content.len(),
-                        "Skipping text_delta for propose command"
-                    );
                 }
             }
 
-            if let Some(reasoning) = chunk.reasoning {
+            // ✅ 收集 reasoning_content
+            if let Some(reasoning) = chunk.reasoning_content {
                 reasoning_parts.push(reasoning);
             }
 
             // ✅ 修正：检查是否是 tool_calls 结束
             if chunk.finish_reason == Some("tool_calls".to_string()) {
-                tracing::info!(
-                    has_tool_calls = chunk.tool_calls.is_some(),
-                    tool_call_count = chunk.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0),
-                    "Finish reason: tool_calls"
-                );
                 // 这是最终的完整工具调用列表
                 final_tool_calls = chunk.tool_calls;
                 break; // 结束流处理
             }
 
             if chunk.finish_reason == Some("stop".to_string()) {
-                tracing::info!(
-                    content_len = content_parts.iter().map(|c| c.len()).sum::<usize>(),
-                    "Finish reason: stop (final text response)"
-                );
                 break;
             }
         }
 
         let full_content = content_parts.join("");
-        let reasoning_content = if reasoning_parts.is_empty() {
+        let full_reasoning = if reasoning_parts.is_empty() {
             None
         } else {
             Some(reasoning_parts.join(""))
         };
 
-        if let Some(reasoning) = &reasoning_content {
-            all_reasoning.push(reasoning.clone());
-        }
-
         collected_text.push_str(&full_content);
 
         Ok(ChatResponse {
             content: full_content,
-            reasoning: reasoning_content,
-            usage: None,  // ✅ 流式模式下暂不支持 usage 统计
-            tool_calls: final_tool_calls,  // ✅ 使用累积的最终结果
+            reasoning_content: full_reasoning, // ✅ 返回收集的 reasoning_content
+            usage: None,
+            tool_calls: final_tool_calls,
         })
     }
 
@@ -512,20 +470,11 @@ impl BusinessAgent {
 
             let result = match function_name.as_str() {
                 "get_schema" => {
-                    // ✅ 添加调试日志
-                    eprintln!("[DEBUG] Calling tool_get_schema()...");
                     let df_guard = crate::state::GLOBAL_DF.lock().unwrap();
-                    eprintln!("[DEBUG] GLOBAL_DF is_some: {}", df_guard.is_some());
-                    if let Some(df) = df_guard.as_ref() {
-                        eprintln!("[DEBUG] DataFrame shape: {} rows, {} cols", df.height(), df.width());
-                    }
                     drop(df_guard); // ✅ 释放锁
                     
                     data_tools::tool_get_schema()
-                        .unwrap_or_else(|e| {
-                            eprintln!("[DEBUG] tool_get_schema error: {}", e);
-                            format!("Error: {}", e)
-                        })
+                        .unwrap_or_else(|e| format!("Error: {}", e))
                 }
                 "query_data" => {
                     let sql = arguments["sql"].as_str().unwrap_or("");
@@ -610,6 +559,7 @@ impl BusinessAgent {
                 // 图表生成工具
                 "generate_chart" => {
                     let chart_type = arguments["chart_type"].as_str().unwrap_or("Bar_Chart");
+                    
                     let title = arguments["title"].as_str().unwrap_or("图表").to_string();
                     let color_scheme = arguments["color_scheme"].as_str().unwrap_or("mckinsey").to_string();
                     
@@ -776,7 +726,38 @@ impl BusinessAgent {
         session_manager: Arc<Mutex<SessionManager>>,
         session_id: String,
     ) -> Result<()> {
-        // TODO: 实现报告生成逻辑
+        use super::tools::export_tools::{tool_export_report, ReportSection};
+        
+        let report_title = params.report_title.clone().unwrap_or_else(|| "分析报告".to_string());
+        let report_sections_raw = params.report_sections.clone().unwrap_or_default();
+        
+        // ✅ 将 Vec<serde_json::Value> 转换为 Vec<ReportSection>
+        let report_sections: Vec<ReportSection> = report_sections_raw
+            .into_iter()
+            .filter_map(|v| serde_json::from_value(v).ok())
+            .collect();
+        
+        // ✅ 发送工具开始事件
+        tx.send(SseEvent::ToolStart {
+            tool: "export_report".to_string(),
+            display: format!("生成报告：{}（{} 个章节）...", report_title, report_sections.len()),
+        }).await.ok();
+        
+        // ✅ 调用报告生成工具
+        match tool_export_report(&report_title, report_sections) {
+            Ok(result) => {
+                // ✅ 发送完整文本结果（包含下载链接的 Markdown）
+                tx.send(SseEvent::Text {
+                    content: result,
+                }).await.ok();
+            }
+            Err(e) => {
+                tx.send(SseEvent::Error {
+                    message: format!("报告生成失败: {}", e),
+                }).await.ok();
+            }
+        }
+        
         tx.send(SseEvent::Done).await.ok();
         Ok(())
     }

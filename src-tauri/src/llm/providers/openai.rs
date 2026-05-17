@@ -48,6 +48,8 @@ struct ApiMessage {
     role: String,
     content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<ApiToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
@@ -101,6 +103,8 @@ struct StreamChoice {
 #[derive(Deserialize)]
 struct StreamDelta {
     content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>, // ✅ 新增：支持 thinking 模型的推理内容
     role: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<StreamToolCall>>,
@@ -173,6 +177,24 @@ impl OpenAIClient {
         self.base_url = base_url;
         self
     }
+
+    /// 构建 ChatRequest
+    fn build_chat_request(
+        &self,
+        messages: Vec<ApiMessage>,
+        stream: bool,
+        tools: Option<Vec<ToolDefinition>>,
+        tool_choice: Option<String>,
+    ) -> ChatRequest {
+        ChatRequest {
+            model: self.model.clone(),
+            messages,
+            max_tokens: Some(self.max_output_tokens),
+            stream,
+            tools,
+            tool_choice,
+        }
+    }
 }
 
 #[async_trait]
@@ -183,31 +205,27 @@ impl LLMClient for OpenAIClient {
 
         let api_messages: Vec<ApiMessage> = messages
             .into_iter()
-            .map(|msg| ApiMessage {
-                role: format!("{:?}", msg.role).to_lowercase(),
-                content: msg.content,
-                tool_calls: msg.tool_calls.map(|tc| {
-                    tc.iter().map(|t| ApiToolCall {
-                        id: t.id.clone(),
-                        call_type: "function".to_string(),
-                        function: ApiToolFunction {
-                            name: t.function.name.clone(),
-                            arguments: t.function.arguments.clone(),
-                        },
-                    }).collect()
-                }),
-                tool_call_id: msg.tool_call_id,
+            .map(|msg| {
+                ApiMessage {
+                    role: format!("{:?}", msg.role).to_lowercase(),
+                    content: msg.content,
+                    reasoning_content: msg.reasoning_content,
+                    tool_calls: msg.tool_calls.map(|tc| {
+                        tc.iter().map(|t| ApiToolCall {
+                            id: t.id.clone(),
+                            call_type: "function".to_string(),
+                            function: ApiToolFunction {
+                                name: t.function.name.clone(),
+                                arguments: t.function.arguments.clone(),
+                            },
+                        }).collect()
+                    }),
+                    tool_call_id: msg.tool_call_id,
+                }
             })
             .collect();
 
-        let request = ChatRequest {
-            model: self.model.clone(),
-            messages: api_messages,
-            max_tokens: Some(self.max_output_tokens),
-            stream: false,
-            tools: None,
-            tool_choice: None,
-        };
+        let request = self.build_chat_request(api_messages, false, None, None);
 
         let response = self
             .client
@@ -243,7 +261,7 @@ impl LLMClient for OpenAIClient {
 
         Ok(ChatResponse {
             content: choice.message.content.clone(),
-            reasoning: None, // OpenAI 暂不支持推理链
+            reasoning_content: None, // ✅ 非流式响应暂不支持 reasoning_content
             usage,
             tool_calls: None, // TODO: 解析工具调用
         })
@@ -293,20 +311,23 @@ impl OpenAIClient {
 
         let api_messages: Vec<ApiMessage> = messages
             .into_iter()
-            .map(|msg| ApiMessage {
-                role: format!("{:?}", msg.role).to_lowercase(),
-                content: msg.content,
-                tool_calls: msg.tool_calls.map(|tc| {
-                    tc.iter().map(|t| ApiToolCall {
-                        id: t.id.clone(),
-                        call_type: "function".to_string(),
-                        function: ApiToolFunction {
-                            name: t.function.name.clone(),
-                            arguments: t.function.arguments.clone(),
-                        },
-                    }).collect()
-                }),
-                tool_call_id: msg.tool_call_id,
+            .map(|msg| {
+                ApiMessage {
+                    role: format!("{:?}", msg.role).to_lowercase(),
+                    content: msg.content,
+                    reasoning_content: msg.reasoning_content,
+                    tool_calls: msg.tool_calls.map(|tc| {
+                        tc.iter().map(|t| ApiToolCall {
+                            id: t.id.clone(),
+                            call_type: "function".to_string(),
+                            function: ApiToolFunction {
+                                name: t.function.name.clone(),
+                                arguments: t.function.arguments.clone(),
+                            },
+                        }).collect()
+                    }),
+                    tool_call_id: msg.tool_call_id,
+                }
             })
             .collect();
 
@@ -360,6 +381,7 @@ impl OpenAIClient {
             let mut buf = String::new();
             
             let mut tc_accumulator: std::collections::HashMap<usize, ToolCallBuilder> = std::collections::HashMap::new();
+            let mut all_reasoning: Vec<String> = Vec::new(); // ✅ 收集 reasoning_content
 
             while let Some(chunk_result) = bytes_stream.next().await {
                 let chunk = chunk_result?;
@@ -389,6 +411,11 @@ impl OpenAIClient {
 
                         if let Ok(stream_resp) = serde_json::from_str::<StreamResponse>(json_data) {
                             if let Some(choice) = stream_resp.choices.first() {
+                                // ✅ 收集 reasoning_content
+                                if let Some(reasoning) = &choice.delta.reasoning_content {
+                                    all_reasoning.push(reasoning.clone());
+                                }
+                                
                                 if let Some(delta_tool_calls) = &choice.delta.tool_calls {
                                     for dtc in delta_tool_calls {
                                         let builder = tc_accumulator.entry(dtc.index).or_insert_with(|| ToolCallBuilder::new());
@@ -416,7 +443,7 @@ impl OpenAIClient {
                                     
                                     yield ChatChunk {
                                         content: None,
-                                        reasoning: None,
+                                        reasoning_content: Some(all_reasoning.join("")), // ✅ 传递收集的 reasoning_content
                                         finish_reason: Some("tool_calls".to_string()),
                                         tool_calls: Some(final_tool_calls),
                                     };
@@ -425,7 +452,7 @@ impl OpenAIClient {
                                 
                                 let chunk = ChatChunk {
                                     content: choice.delta.content.clone(),
-                                    reasoning: None,
+                                    reasoning_content: choice.delta.reasoning_content.clone(), // ✅ 传递 reasoning_content
                                     finish_reason: choice.finish_reason.clone(),
                                     tool_calls: None,
                                 };

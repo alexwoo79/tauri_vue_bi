@@ -11,7 +11,7 @@ use std::fmt::Debug;
 use std::pin::Pin;
 
 /// 消息角色
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageRole {
     System,
@@ -40,6 +40,8 @@ pub struct Message {
     pub role: MessageRole,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
@@ -50,6 +52,7 @@ impl Message {
         Self {
             role: MessageRole::System,
             content: content.into(),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         }
@@ -59,6 +62,7 @@ impl Message {
         Self {
             role: MessageRole::User,
             content: content.into(),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         }
@@ -68,6 +72,7 @@ impl Message {
         Self {
             role: MessageRole::Assistant,
             content: content.into(),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         }
@@ -77,6 +82,22 @@ impl Message {
         Self {
             role: MessageRole::Assistant,
             content: content.into(),
+            reasoning_content: None,
+            tool_calls: Some(tool_calls),
+            tool_call_id: None,
+        }
+    }
+
+    /// ✅ 新增：支持 reasoning_content 的 assistant_with_tools 变体
+    pub fn assistant_with_tools_and_reasoning(
+        content: impl Into<String>,
+        reasoning_content: Option<String>,
+        tool_calls: Vec<ToolCall>,
+    ) -> Self {
+        Self {
+            role: MessageRole::Assistant,
+            content: content.into(),
+            reasoning_content,
             tool_calls: Some(tool_calls),
             tool_call_id: None,
         }
@@ -86,6 +107,7 @@ impl Message {
         Self {
             role: MessageRole::Tool,
             content: content.into(),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: Some(tool_call_id.into()),
         }
@@ -104,7 +126,8 @@ pub struct TokenUsage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatResponse {
     pub content: String,
-    pub reasoning: Option<String>, // 推理链（DeepSeek R1 / Claude 3.7+）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     pub usage: Option<TokenUsage>,
     pub tool_calls: Option<Vec<ToolCall>>,
 }
@@ -113,7 +136,8 @@ pub struct ChatResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatChunk {
     pub content: Option<String>,      // 增量内容
-    pub reasoning: Option<String>,    // 推理链增量
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>, // ✅ thinking 模型的推理内容
     pub finish_reason: Option<String>, // 结束原因（stop/length/tool_calls）
     pub tool_calls: Option<Vec<ToolCall>>, // 工具调用（流式中可能分块返回）
 }

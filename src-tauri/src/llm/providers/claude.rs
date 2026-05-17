@@ -217,7 +217,6 @@ impl LLMClient for ClaudeClient {
 
         Ok(ChatResponse {
             content,
-            reasoning: None,
             usage,
             tool_calls: None, // TODO: 解析工具调用
         })
@@ -354,7 +353,6 @@ impl LLMClient for ClaudeClient {
                                         if let Some(text) = delta.text {
                                             yield ChatChunk {
                                                 content: Some(text),
-                                                reasoning: None,
                                                 finish_reason: None,
                                                 tool_calls: None,
                                             };
@@ -383,7 +381,6 @@ impl LLMClient for ClaudeClient {
                                         
                                         yield ChatChunk {
                                             content: None,
-                                            reasoning: None,
                                             finish_reason: Some("tool_calls".to_string()),
                                             tool_calls: Some(final_tool_calls),
                                         };
@@ -391,7 +388,6 @@ impl LLMClient for ClaudeClient {
                                         // 普通文本结束
                                         yield ChatChunk {
                                             content: None,
-                                            reasoning: None,
                                             finish_reason: Some("stop".to_string()),
                                             tool_calls: None,
                                         };

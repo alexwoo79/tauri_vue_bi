@@ -268,22 +268,38 @@ pub fn load_file_impl(
             }
         }
         "xlsx" | "xls" | "xlsm" | "ods" => {
-            if header_row >= 0 {
+            // ✅ 读取所有 sheet
+            let all_sheets = if header_row >= 0 {
                 let hr = header_row as usize;
                 if header_locked {
-                    let mut parsed = read_excel_impl(p, hr, skip_tail)?;
-                    if skip_head > 0 {
-                        let keep = parsed.height().saturating_sub(skip_head);
-                        parsed = parsed.slice(skip_head as i64, keep);
-                    }
-                    parsed
+                    let combined_skip = hr.saturating_add(skip_head);
+                    read_all_excel_sheets(p, combined_skip, skip_tail)?
                 } else {
                     let combined_skip = skip_head.saturating_add(hr);
-                    read_excel_impl(p, combined_skip, skip_tail)?
+                    read_all_excel_sheets(p, combined_skip, skip_tail)?
                 }
             } else {
-                read_excel_impl(p, skip_head, skip_tail)?
+                read_all_excel_sheets(p, skip_head, skip_tail)?
+            };
+
+            // ✅ 第一个 sheet 作为主数据集
+            let first_sheet = all_sheets.first()
+                .ok_or_else(|| anyhow!("No valid sheets found"))?;
+            
+            let mut df = first_sheet.1.clone();
+            
+            // ✅ 将所有 sheet 注册为独立数据集
+            for (sheet_name, sheet_df) in &all_sheets {
+                // 清理和类型转换
+                let cleaned_df = drop_all_null_cols(sheet_df.clone());
+                let (cleaned_df, _notices) = auto_cast_business_float_columns(cleaned_df)?;
+                let cleaned_df = auto_cast_temporal_columns(cleaned_df)?;
+                
+                // 注册数据集（使用 sheet 名称）
+                crate::state::register_dataset(&cleaned_df, sheet_name.clone(), "excel_sheet".to_string());
             }
+            
+            df
         }
         other => bail!("Unsupported file extension: .{other}"),
     };
@@ -707,97 +723,229 @@ fn infer_temporal_kind(col: &Column) -> Option<TemporalKind> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Excel reader (calamine)
+// Excel reader (calamine) - 支持多 Sheet，每个 sheet 作为独立数据集
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// 读取 Excel 文件的所有 sheet，返回第一个 sheet 的 DataFrame
+/// 其他 sheet 会通过 side effect 注册到 DATASET_REGISTRY
 fn read_excel_impl(path: &Path, skip_head: usize, skip_tail: usize) -> Result<DataFrame> {
     let mut workbook = open_workbook_auto(path)
         .with_context(|| format!("Cannot open Excel file: {}", path.display()))?;
 
     let sheet_names = workbook.sheet_names().to_vec();
-    let sheet_name = sheet_names
-        .first()
-        .ok_or_else(|| anyhow!("Excel file has no sheets"))?;
-
-    let range = workbook
-        .worksheet_range(sheet_name)
-        .with_context(|| format!("Cannot read sheet '{}'", sheet_name))?;
-
-    let total = range.height();
-    if total == 0 {
-        bail!("Sheet '{}' is empty", sheet_name);
+    if sheet_names.is_empty() {
+        bail!("Excel file has no sheets");
     }
 
-    let data_start = skip_head.min(total);
-    let data_end = if skip_tail < total - data_start {
-        total - skip_tail
-    } else {
-        data_start
-    };
+    // ✅ 对齐 Python 版本：遍历所有 sheet，每个 sheet 作为独立的 DataFrame
+    let mut first_df: Option<DataFrame> = None;
+    let mut sheet_count = 0usize;
 
-    if data_start >= data_end {
-        bail!("No rows remaining after skipping head/tail");
-    }
+    for sheet_name in &sheet_names {
+        let range = workbook
+            .worksheet_range(sheet_name)
+            .with_context(|| format!("Cannot read sheet '{}'", sheet_name))?;
 
-    let header_row_idx = data_start;
-    let col_count = range.width();
+        let total = range.height();
+        if total == 0 {
+            tracing::warn!("[ExcelDS] sheet '{}' skipped (no data)", sheet_name);
+            continue;
+        }
 
-    let headers: Vec<String> = (0..col_count)
-        .map(|c| {
-            range
-                .get((header_row_idx, c))
-                .map(|cell| {
-                    let s = cell_to_string(cell);
-                    if s.trim().is_empty() {
-                        format!("column_{c}")
-                    } else {
-                        s
-                    }
-                })
-                .unwrap_or_else(|| format!("column_{c}"))
-        })
-        .collect();
-
-    let data_rows: Vec<Vec<_>> = ((header_row_idx + 1)..data_end)
-        .map(|r| (0..col_count).map(|c| range.get((r, c))).collect())
-        .collect();
-
-    if data_rows.is_empty() {
-        let cols: Vec<Column> = headers
-            .iter()
-            .map(|h| Column::new(h.as_str().into(), Vec::<String>::new()))
-            .collect();
-        return DataFrame::new(cols).map_err(|e| anyhow!("{e}"));
-    }
-
-    let mut series_vec: Vec<Column> = Vec::with_capacity(col_count);
-    for c in 0..col_count {
-        let name: PlSmallStr = headers[c].as_str().into();
-        let all_numeric = data_rows.iter().all(|row| match row[c] {
-            None | Some(XlDataType::Empty) => true,
-            Some(XlDataType::Float(_)) | Some(XlDataType::Int(_)) | Some(XlDataType::Bool(_)) => {
-                true
-            }
-            _ => false,
-        });
-
-        let col: Column = if all_numeric {
-            let vals: Vec<Option<f64>> = data_rows.iter().map(|row| cell_to_f64(row[c])).collect();
-            Series::new(name, vals).into()
+        let data_start = skip_head.min(total);
+        let data_end = if skip_tail < total - data_start {
+            total - skip_tail
         } else {
-            let vals: Vec<Option<String>> = data_rows
-                .iter()
-                .map(|row| {
-                    let s = cell_to_string_opt(row[c]);
-                    s.filter(|v| !v.is_empty())
-                })
-                .collect();
-            Series::new(name, vals).into()
+            data_start
         };
-        series_vec.push(col);
+
+        if data_start >= data_end {
+            tracing::warn!("[ExcelDS] sheet '{}' skipped (no rows after skip)", sheet_name);
+            continue;
+        }
+
+        let header_row_idx = data_start;
+        let col_count = range.width();
+
+        let headers: Vec<String> = (0..col_count)
+            .map(|c| {
+                range
+                    .get((header_row_idx, c))
+                    .map(|cell| {
+                        let s = cell_to_string(cell);
+                        if s.trim().is_empty() {
+                            format!("column_{c}")
+                        } else {
+                            s
+                        }
+                    })
+                    .unwrap_or_else(|| format!("column_{c}"))
+            })
+            .collect();
+
+        let data_rows: Vec<Vec<_>> = ((header_row_idx + 1)..data_end)
+            .map(|r| (0..col_count).map(|c| range.get((r, c))).collect())
+            .collect();
+
+        if data_rows.is_empty() {
+            tracing::warn!("[ExcelDS] sheet '{}' skipped (no data rows)", sheet_name);
+            continue;
+        }
+
+        let mut series_vec: Vec<Column> = Vec::with_capacity(col_count);
+        for c in 0..col_count {
+            let name: PlSmallStr = headers[c].as_str().into();
+            let all_numeric = data_rows.iter().all(|row| match row[c] {
+                None | Some(XlDataType::Empty) => true,
+                Some(XlDataType::Float(_)) | Some(XlDataType::Int(_)) | Some(XlDataType::Bool(_)) => {
+                    true
+                }
+                _ => false,
+            });
+
+            let col: Column = if all_numeric {
+                let vals: Vec<Option<f64>> = data_rows.iter().map(|row| cell_to_f64(row[c])).collect();
+                Series::new(name, vals).into()
+            } else {
+                let vals: Vec<Option<String>> = data_rows
+                    .iter()
+                    .map(|row| {
+                        let s = cell_to_string_opt(row[c]);
+                        s.filter(|v| !v.is_empty())
+                    })
+                    .collect();
+                Series::new(name, vals).into()
+            };
+            series_vec.push(col);
+        }
+
+        let df = DataFrame::new(series_vec).map_err(|e| anyhow!("{e}"))?;
+        
+        // ✅ 第一个 sheet 作为主数据集返回
+        if first_df.is_none() {
+            first_df = Some(df.clone());
+        }
+        
+        // ✅ 将所有 sheet 注册为独立数据集（供后续切换使用）
+        // 注意：这里不直接调用 register_dataset，因为该函数需要访问全局状态
+        // 而是在 load_file_impl 中处理
+        sheet_count += 1;
+        tracing::info!("[ExcelDS] sheet '{}' loaded OK ({} rows)", sheet_name, df.height());
     }
 
-    DataFrame::new(series_vec).map_err(|e| anyhow!("{e}"))
+    if sheet_count == 0 {
+        bail!("Excel 文件中未发现有效工作表。");
+    }
+
+    // ✅ 返回第一个 sheet 的 DataFrame（其他 sheet 会在上层注册）
+    first_df.ok_or_else(|| anyhow!("No valid sheets found"))
+}
+
+/// 读取 Excel 文件的所有 sheet，返回所有 DataFrame 及其对应的 sheet 名称
+fn read_all_excel_sheets(
+    path: &Path,
+    skip_head: usize,
+    skip_tail: usize,
+) -> Result<Vec<(String, DataFrame)>> {
+    let mut workbook = open_workbook_auto(path)
+        .with_context(|| format!("Cannot open Excel file: {}", path.display()))?;
+
+    let sheet_names = workbook.sheet_names().to_vec();
+    if sheet_names.is_empty() {
+        bail!("Excel file has no sheets");
+    }
+
+    let mut results: Vec<(String, DataFrame)> = Vec::new();
+
+    for sheet_name in &sheet_names {
+        let range = workbook
+            .worksheet_range(sheet_name)
+            .with_context(|| format!("Cannot read sheet '{}'", sheet_name))?;
+
+        let total = range.height();
+        if total == 0 {
+            tracing::warn!("[ExcelDS] sheet '{}' skipped (no data)", sheet_name);
+            continue;
+        }
+
+        let data_start = skip_head.min(total);
+        let data_end = if skip_tail < total - data_start {
+            total - skip_tail
+        } else {
+            data_start
+        };
+
+        if data_start >= data_end {
+            tracing::warn!("[ExcelDS] sheet '{}' skipped (no rows after skip)", sheet_name);
+            continue;
+        }
+
+        let header_row_idx = data_start;
+        let col_count = range.width();
+
+        let headers: Vec<String> = (0..col_count)
+            .map(|c| {
+                range
+                    .get((header_row_idx, c))
+                    .map(|cell| {
+                        let s = cell_to_string(cell);
+                        if s.trim().is_empty() {
+                            format!("column_{c}")
+                        } else {
+                            s
+                        }
+                    })
+                    .unwrap_or_else(|| format!("column_{c}"))
+            })
+            .collect();
+
+        let data_rows: Vec<Vec<_>> = ((header_row_idx + 1)..data_end)
+            .map(|r| (0..col_count).map(|c| range.get((r, c))).collect())
+            .collect();
+
+        if data_rows.is_empty() {
+            tracing::warn!("[ExcelDS] sheet '{}' skipped (no data rows)", sheet_name);
+            continue;
+        }
+
+        let mut series_vec: Vec<Column> = Vec::with_capacity(col_count);
+        for c in 0..col_count {
+            let name: PlSmallStr = headers[c].as_str().into();
+            let all_numeric = data_rows.iter().all(|row| match row[c] {
+                None | Some(XlDataType::Empty) => true,
+                Some(XlDataType::Float(_)) | Some(XlDataType::Int(_)) | Some(XlDataType::Bool(_)) => {
+                    true
+                }
+                _ => false,
+            });
+
+            let col: Column = if all_numeric {
+                let vals: Vec<Option<f64>> = data_rows.iter().map(|row| cell_to_f64(row[c])).collect();
+                Series::new(name, vals).into()
+            } else {
+                let vals: Vec<Option<String>> = data_rows
+                    .iter()
+                    .map(|row| {
+                        let s = cell_to_string_opt(row[c]);
+                        s.filter(|v| !v.is_empty())
+                    })
+                    .collect();
+                Series::new(name, vals).into()
+            };
+            series_vec.push(col);
+        }
+
+        let df = DataFrame::new(series_vec).map_err(|e| anyhow!("{e}"))?;
+        let df_height = df.height(); // ✅ 先获取高度
+        results.push((sheet_name.clone(), df));
+        tracing::info!("[ExcelDS] sheet '{}' loaded OK ({} rows)", sheet_name, df_height);
+    }
+
+    if results.is_empty() {
+        bail!("Excel 文件中未发现有效工作表。");
+    }
+
+    Ok(results)
 }
 
 fn cell_to_string(cell: &XlDataType) -> String {

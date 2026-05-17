@@ -43,9 +43,18 @@ impl MessageRole {
 /// 聊天消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
-    pub role: String,  // "user" or "assistant"
+    pub role: String,  // "user" or "assistant" or "tool"
     pub content: String,
     pub timestamp: u64,
+    /// ✅ 新增：支持 reasoning_content（用于 thinking 模型）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
+    /// ✅ 新增：支持 tool_call_id（用于工具调用结果）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    /// ✅ 新增：支持 tool_calls（用于 assistant 的工具调用）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<crate::llm::ToolCall>>,
 }
 
 /// 会话状态
@@ -90,6 +99,9 @@ impl ChatSession {
             role: "user".to_string(),
             content: content.to_string(),
             timestamp: now,
+            reasoning_content: None,  // ✅ 用户消息不包含 reasoning_content
+            tool_call_id: None,  // ✅ 用户消息不包含 tool_call_id
+            tool_calls: None,  // ✅ 用户消息不包含 tool_calls
         });
         
         self.updated_at = now;
@@ -116,6 +128,61 @@ impl ChatSession {
             role: "assistant".to_string(),
             content: content.to_string(),
             timestamp: now,
+            reasoning_content: None,  // ✅ 普通助手消息不包含 reasoning_content
+            tool_call_id: None,  // ✅ 助手消息默认不包含 tool_call_id
+            tool_calls: None,  // ✅ 助手消息默认不包含 tool_calls
+        });
+        
+        self.updated_at = now;
+    }
+    
+    /// ✅ 新增：添加包含工具调用的助手消息
+    pub fn add_assistant_message_with_tools(
+        &mut self,
+        content: &str,
+        tool_calls: Vec<crate::llm::ToolCall>,
+    ) {
+        self.add_assistant_message_with_tools_and_reasoning(content, None, tool_calls);
+    }
+    
+    /// ✅ 新增：添加包含工具调用和 reasoning_content 的助手消息（支持 thinking 模型）
+    pub fn add_assistant_message_with_tools_and_reasoning(
+        &mut self,
+        content: &str,
+        reasoning_content: Option<String>,
+        tool_calls: Vec<crate::llm::ToolCall>,
+    ) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        self.messages.push(ChatMessage {
+            role: "assistant".to_string(),
+            content: content.to_string(),
+            timestamp: now,
+            reasoning_content,
+            tool_call_id: None,
+            tool_calls: Some(tool_calls),
+        });
+        
+        self.updated_at = now;
+    }
+    
+    /// ✅ 新增：添加工具调用结果消息
+    pub fn add_tool_message(&mut self, content: &str, tool_call_id: &str) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        self.messages.push(ChatMessage {
+            role: "tool".to_string(),
+            content: content.to_string(),
+            timestamp: now,
+            reasoning_content: None,  // ✅ tool 消息不包含 reasoning_content
+            tool_call_id: Some(tool_call_id.to_string()),
+            tool_calls: None,
         });
         
         self.updated_at = now;

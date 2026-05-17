@@ -353,10 +353,58 @@ async function handleSendMessage(
           display: event.display || '执行中',
         })
       } else if (event.type === 'tool_result') {
-        const resultText = event.content || event.message || '工具执行完成'
-        sessionStore.addMessage('assistant', resultText, 'text')
+        // ✅ 对齐 Python 版本：只显示"工具执行完成"，不显示详细结果
+        // 工具结果（schema、查询数据等）应该由 LLM 在下一轮回复中总结呈现
+        sessionStore.addMessage('assistant', '工具执行完成', 'tool_result', {
+          display: '工具执行完成',
+          toolName: event.tool || event.tool_name || 'tool',
+        })
+      } else if (event.type === 'excel_outline') {
+        const ev = event as any
+        const markdown = typeof ev.markdown === 'string' ? ev.markdown : '已生成导出计划。'
+        const tables = Array.isArray(ev.tables) ? (ev.tables.filter((x) => typeof x === 'string') as string[]) : ['*']
+        const filename = typeof ev.filename === 'string' ? ev.filename : ''
+        sessionStore.addMessage('assistant', markdown, 'outline', {
+          outlineType: 'excel',
+          tables,
+          filename,
+        })
+      } else if (event.type === 'report_outline') {
+        const ev = event as any
+        const markdown = typeof ev.markdown === 'string' ? ev.markdown : '已生成报告大纲。'
+        const title = typeof ev.title === 'string' ? ev.title : '分析报告'
+        const sections = Array.isArray(ev.sections) ? (ev.sections as Record<string, any>[]) : []
+        sessionStore.addMessage('assistant', markdown, 'outline', {
+          outlineType: 'report',
+          title,
+          sections,
+        })
+      } else if (event.type === 'ppt_outline') {
+        const ev = event as any
+        const markdown = typeof ev.markdown === 'string' ? ev.markdown : '已生成 PPT 大纲。'
+        const title = typeof ev.title === 'string' ? ev.title : 'PPT'
+        const slides = Array.isArray(ev.slides) ? (ev.slides as Record<string, any>[]) : []
+        sessionStore.addMessage('assistant', markdown, 'outline', {
+          outlineType: 'ppt',
+          title,
+          slides,
+        })
+      } else if (event.type === 'dashboard_outline') {
+        const ev = event as any
+        const markdown = typeof ev.markdown === 'string' ? ev.markdown : '已生成看板大纲。'
+        const name = typeof ev.name === 'string' ? ev.name : 'Dashboard'
+        const widgets = Array.isArray(ev.widgets) ? (ev.widgets as Record<string, any>[]) : []
+        sessionStore.addMessage('assistant', markdown, 'outline', {
+          outlineType: 'dashboard',
+          name,
+          widgets,
+        })
       } else if (event.type === 'reasoning' && event.content) {
-        sessionStore.addMessage('assistant', event.content, 'thinking')
+        // ✅ 修复：将 reasoning_content 附加到当前的 assistant 消息，而不是创建独立消息
+        // 这样后端在构建消息历史时能够正确传递 reasoning_content 给 DeepSeek
+        sessionStore.updateMessage(assistantMsg.id, {
+          reasoning_content: event.content
+        })
       } else if (event.type === 'error') {
         const err = event.error || event.message || '未知错误'
         sessionStore.updateMessage(assistantMsg.id, {
@@ -550,7 +598,86 @@ function handleOutlineAction(payload: {
   widgets?: Record<string, any>[]
 }) {
   console.log('[AgentChat] Outline action:', payload)
-  // TODO: 实现大纲操作
+  
+  // ✅ 取消操作
+  if (payload.action === 'cancel') {
+    sessionStore.addMessage('system', '已取消本次导出计划', 'text')
+    return
+  }
+
+  // ✅ 修改操作 - 发送修订指令
+  if (payload.action === 'revise') {
+    const reviseMap = {
+      excel: 'excel_revise',
+      report: 'report_revise',
+      ppt: 'ppt_revise',
+      dashboard: 'dashboard_revise',
+    } as const
+
+    const currentJsonMap = {
+      excel: `[CURRENT_EXCEL_JSON] ${JSON.stringify({
+        tables: payload.tables || ['*'],
+        filename: payload.filename || '',
+      })}`,
+      report: `[CURRENT_REPORT_JSON] ${JSON.stringify({
+        title: payload.title || '分析报告',
+        sections: payload.sections || [],
+      })}`,
+      ppt: `[CURRENT_SLIDES_JSON] ${JSON.stringify({
+        title: payload.title || 'PPT',
+        slides: payload.slides || [],
+      })}`,
+      dashboard: `[CURRENT_DASHBOARD_JSON] ${JSON.stringify({
+        name: payload.name || 'Dashboard',
+        widgets: payload.widgets || [],
+      })}`,
+    } as const
+
+    const reviseInstructionMap = {
+      excel: '请根据当前 Excel 导出方案进行修改。',
+      report: '请根据当前报告大纲进行修改。',
+      ppt: '请根据当前 PPT 大纲进行修改。',
+      dashboard: '请根据当前看板大纲进行修改。',
+    } as const
+
+    const reviseMessage = `${reviseInstructionMap[payload.outlineType]}\n\n${currentJsonMap[payload.outlineType]}`
+    void handleSendMessage(reviseMessage, reviseMap[payload.outlineType])
+    return
+  }
+
+  // ✅ 确认操作 - 根据不同类型发送确认命令
+  if (payload.outlineType === 'excel') {
+    void handleSendMessage('确认导出', 'excel_confirm', {
+      suppressUserMessage: true,
+      excelTables: payload.tables || ['*'],
+      excelFilename: payload.filename || '',
+    })
+    return
+  }
+
+  if (payload.outlineType === 'report') {
+    void handleSendMessage('确认生成报告', 'report_confirm', {
+      suppressUserMessage: true,
+      reportTitle: payload.title || '分析报告',
+      reportSections: payload.sections || [],
+    })
+    return
+  }
+
+  if (payload.outlineType === 'ppt') {
+    void handleSendMessage('确认生成PPT', 'ppt_confirm', {
+      suppressUserMessage: true,
+      pptTitle: payload.title || 'PPT',
+      pptSlides: payload.slides || [],
+    })
+    return
+  }
+
+  void handleSendMessage('确认生成看板', 'dashboard_confirm', {
+      suppressUserMessage: true,
+      dashboardName: payload.name || 'Dashboard',
+      dashboardWidgets: payload.widgets || [],
+  })
 }
 
 function showHelp() {

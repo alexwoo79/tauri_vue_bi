@@ -27,6 +27,10 @@
             <span>{{ msg.metadata?.toolName || '工具调用' }}</span>
             <span class="tool-hint">{{ msg.metadata?.display }}</span>
           </div>
+          <div v-else-if="msg.type === 'tool_result'" class="tool-result">
+            <el-icon class="success"><CircleCheck /></el-icon>
+            <span>{{ msg.metadata?.display || '工具执行完成' }}</span>
+          </div>
           <div v-else-if="msg.type === 'chart_html'" class="chart-wrapper">
             <button class="chart-expand-btn" @click="openChartFullscreen(msg.content)">全屏查看</button>
             <iframe
@@ -128,7 +132,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Loading, Warning } from '@element-plus/icons-vue'
+import { Loading, Warning, CircleCheck } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type { AiMessage } from '../utils/aiTypes'
@@ -217,6 +221,18 @@ watch(
 function highlightCode(code: string): string {
   // 这里简单返回，实际可以使用 highlight.js 或其他库
   return code.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// ✅ 格式化工具结果内容（JSON 美化显示）
+function formatToolResult(content: string): string {
+  try {
+    // 尝试解析为 JSON 并格式化
+    const parsed = JSON.parse(content)
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    // 如果不是 JSON，直接返回原始内容
+    return content
+  }
 }
 
 function renderMarkdown(content: string): string {
@@ -387,6 +403,7 @@ function emitOutlineAction(msg: AiMessage, action: 'confirm' | 'revise' | 'cance
     widgets: msg.metadata?.widgets,
   })
 }
+
 </script>
 
 <style scoped>
@@ -514,6 +531,19 @@ function emitOutlineAction(msg: AiMessage, action: 'confirm' | 'revise' | 'cance
   color: var(--el-text-color-secondary);
   font-size: 11px;
   margin-left: auto;
+}
+
+/* ✅ 工具执行完成样式（对齐 Python 版本） */
+.tool-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--el-color-success);
+}
+
+.tool-result :deep(.el-icon) {
+  font-size: 16px;
 }
 
 .chart-wrapper {

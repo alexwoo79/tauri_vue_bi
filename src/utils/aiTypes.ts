@@ -42,10 +42,21 @@ export interface AiSession {
 
 export interface AiMessage {
     id: string
-    role: 'user' | 'assistant' | 'system'
+    role: 'user' | 'assistant' | 'system' | 'tool'
     content: string
     timestamp: number
     type: AiMessageType
+    // ✅ 新增：支持 thinking 模型的 reasoning_content
+    reasoning_content?: string
+    // ✅ 新增：支持工具调用
+    tool_call_id?: string
+    tool_calls?: Array<{
+        id: string
+        function: {
+            name: string
+            arguments: string
+        }
+    }>
     // 图表相关字段（用于 chart_generated 类型）
     html?: string
     chartType?: string

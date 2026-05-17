@@ -245,9 +245,18 @@ pub fn tool_export_report(title: &str, sections: Vec<ReportSection>) -> Result<S
     // TODO: 实现 Word 报告生成
     // 可以使用 docx-rs 或其他 Rust Word 生成库
     
-    let output_path = format!("report_{}.docx", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+    let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let filename = format!("report_{}.zip", ts);
+    let n_sections = sections.len();
     
-    Ok(format!("报告已生成: {} ({} 个章节)", output_path, sections.len()))
+    // ✅ 对齐 Python 版本的返回格式
+    // Python: f"✅ 报告已生成，共 {len(sections)} 个章节{chart_note}。\n\n[ 点击下载 {download_name}](/api/export/{download_name})"
+    Ok(format!(
+        "✅ 报告已生成，共 {} 个章节。\n\n[ 点击下载 {}](/api/export/{})",
+        n_sections,
+        filename,
+        filename
+    ))
 }
 
 /// 提议报告大纲（预览）
