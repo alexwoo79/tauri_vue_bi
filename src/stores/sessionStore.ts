@@ -137,11 +137,31 @@ export const useSessionStore = defineStore('aiSession', () => {
   function addMessage(
     role: 'user' | 'assistant' | 'system',
     content: string,
-    type: AiMessageType = 'text',
+    typeOrOptions?: AiMessageType | {
+      type?: AiMessageType
+      html?: string
+      chartType?: string
+      meta?: Record<string, any>
+    },
     metadata?: any
   ): AiMessage {
     if (!currentSession.value) {
       throw new Error('No active session')
+    }
+
+    // 处理可选参数
+    let type: AiMessageType = 'text'
+    let extraFields: Partial<AiMessage> = {}
+    
+    if (typeof typeOrOptions === 'string') {
+      type = typeOrOptions
+    } else if (typeOrOptions && typeof typeOrOptions === 'object') {
+      type = typeOrOptions.type || 'text'
+      extraFields = {
+        html: typeOrOptions.html,
+        chartType: typeOrOptions.chartType,
+        meta: typeOrOptions.meta,
+      }
     }
 
     const now = Date.now()
@@ -152,6 +172,7 @@ export const useSessionStore = defineStore('aiSession', () => {
       timestamp: now,
       type,
       metadata,
+      ...extraFields,
     }
 
     currentSession.value.messages.push(message)

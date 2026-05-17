@@ -46,6 +46,10 @@ export interface AiMessage {
     content: string
     timestamp: number
     type: AiMessageType
+    // 图表相关字段（用于 chart_generated 类型）
+    html?: string
+    chartType?: string
+    meta?: Record<string, any>
     metadata?: {
         toolName?: string
         toolInput?: Record<string, any>
@@ -75,6 +79,7 @@ export type AiMessageType =
     | 'tool_start'
     | 'tool_result'
     | 'chart_html'
+    | 'chart_generated'  // 新增：Rust Agent 生成的图表
     | 'code_block'
     | 'error'
     | 'thinking'
@@ -89,10 +94,13 @@ export interface AiEvent {
     content?: string
     message?: string
     tool?: string
+    tool_name?: string
     display?: string
     html?: string
     chartId?: string
     chart_id?: string
+    echarts_spec?: Record<string, any>
+    file_path?: string
     tables?: string[]
     filename?: string
     title?: string
@@ -113,6 +121,7 @@ export interface AiEvent {
 export type AiEventType =
     | 'text'
     | 'text_delta'
+    | 'user_message'
     | 'tool_start'
     | 'tool_result'
     | 'excel_outline'
@@ -121,6 +130,7 @@ export type AiEventType =
     | 'dashboard_outline'
     | 'chart_ref'
     | 'chart_html'
+    | 'chart_generated'
     | 'code_block'
     | 'thinking'
     | 'reasoning'

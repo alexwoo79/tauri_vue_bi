@@ -32,7 +32,7 @@
 
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Download, DataLine, Grid, Calendar, Link, TrendCharts, Brush, MagicStick } from '@element-plus/icons-vue'
+import { Download, DataLine, Grid, Calendar, Link, TrendCharts, Brush, MagicStick, ChatDotRound } from '@element-plus/icons-vue'
 import appLogo from './assets/app-logo.png'
 
 const router = useRouter()
@@ -161,6 +161,13 @@ function toggleSidebar() {
             <MagicStick />
           </el-icon>
           <template #title>AI智能分析</template>
+        </el-menu-item>
+
+        <el-menu-item index="agent-chat">
+          <el-icon>
+            <ChatDotRound />
+          </el-icon>
+          <template #title>🤖 Rust Agent</template>
         </el-menu-item>
       </el-menu>
 

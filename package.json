@@ -20,6 +20,7 @@
     "element-plus": "^2",
     "marked": "^18.0.3",
     "pinia": "^2",
+    "plotly.js-dist-min": "^3.5.1",
     "vue": "^3.4",
     "vue-echarts": "^7",
     "vue-router": "^4"

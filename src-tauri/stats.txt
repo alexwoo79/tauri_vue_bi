@@ -1,0 +1,7 @@
+Total Errors: 1
+Error Code Distribution (Top 5):
+  37 [E0308]
+  16 [E0061]
+  13 [E0599]
+  11 [E0432]
+   3 [E0616]

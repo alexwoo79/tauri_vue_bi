@@ -1,0 +1,126 @@
+    Checking tauri-vue-bi v0.1.0 (/Users/alex/Documents/github/tauri-vue-bi/src-tauri)
+src/agent/tools/chart_engine.rs:702:17: error[E0432]: unresolved import `plotly::bar`: could not find `bar` in `plotly`
+src/agent/tools/chart_engine.rs:758:17: error[E0432]: unresolved import `plotly::bar`: could not find `bar` in `plotly`
+src/agent/tools/chart_engine.rs:870:17: error[E0432]: unresolved import `plotly::heatmap`: could not find `heatmap` in `plotly`
+src/agent/tools/chart_engine.rs:942:9: error[E0432]: unresolved import `plotly::box_plot::Box`: no `Box` in `traces::box_plot`
+src/agent/tools/chart_engine.rs:996:9: error[E0432]: unresolved import `plotly::box_plot::Box`: no `Box` in `traces::box_plot`
+src/agent/tools/chart_engine.rs:1097:17: error[E0432]: unresolved import `plotly::waterfall`: could not find `waterfall` in `plotly`
+src/agent/tools/chart_engine.rs:1098:17: error[E0432]: unresolved import `plotly::waterfall`: could not find `waterfall` in `plotly`
+src/agent/tools/chart_engine.rs:1325:17: error[E0432]: unresolved import `plotly::treemap`: could not find `treemap` in `plotly`
+src/agent/tools/chart_engine.rs:1390:17: error[E0432]: unresolved import `plotly::pie`: could not find `pie` in `plotly`
+src/agent/tools/chart_engine.rs:1527:17: error[E0432]: unresolved import `plotly::sunburst`: could not find `sunburst` in `plotly`
+src/agent/tools/chart_engine.rs:1592:17: error[E0432]: unresolved import `plotly::bar`: could not find `bar` in `plotly`
+src/agent/tools/export_tools.rs:164:55: error[E0433]: failed to resolve: could not find `DateTime` in `rust_xlsxwriter`: could not find `DateTime` in `rust_xlsxwriter`
+src/agent/tools/export_tools.rs:179:55: error[E0433]: failed to resolve: could not find `DateTime` in `rust_xlsxwriter`: could not find `DateTime` in `rust_xlsxwriter`
+src/agent/session.rs:11:17: warning: unused imports: `Arc` and `Mutex`
+src/agent/tools/chart_tools.rs:14:5: warning: unused import: `std::sync::Arc`
+src/agent/tools/color_schemes.rs:12:5: warning: unused import: `std::collections::HashMap`
+src/agent/tools/data_tools.rs:16:5: warning: unused import: `std::sync::Arc`
+src/agent/tools/export_tools.rs:14:33: warning: unused import: `XlsxError`
+src/agent/tools/export_tools.rs:16:5: warning: unused import: `std::fs`
+src/agent/tools/export_tools.rs:17:5: warning: unused import: `std::path::PathBuf`
+src/agent/tools/mod.rs:20:9: warning: ambiguous glob re-exports: the name `FieldMapping` in the type namespace is first re-exported here
+src/agent/tools/mod.rs:20:9: warning: ambiguous glob re-exports: the name `ChartOptions` in the type namespace is first re-exported here
+src/agent/tools/mod.rs:20:9: warning: ambiguous glob re-exports: the name `ChartResult` in the type namespace is first re-exported here
+src/agent/tools/mod.rs:21:9: warning: ambiguous glob re-exports: the name `tool_generate_chart` in the value namespace is first re-exported here
+src/agent/tools/mod.rs:21:9: warning: ambiguous glob re-exports: the name `ColorScheme` in the type namespace is first re-exported here
+src/agent/tools/mod.rs:21:9: warning: unused import: `chart_tools::*`
+src/agent/state_machine.rs:132:51: error[E0616]: field `sessions` of struct `SessionManager` is private: private field
+src/agent/state_machine.rs:214:28: error[E0599]: no method named `recent_history` found for struct `ChatSession` in the current scope: method not found in `ChatSession`
+src/agent/state_machine.rs:240:48: error[E0616]: field `sessions` of struct `SessionManager` is private: private field
+src/agent/state_machine.rs:342:21: error[E0599]: no method named `add_user` found for struct `ChatSession` in the current scope
+src/agent/state_machine.rs:343:21: error[E0599]: no method named `add_assistant` found for struct `ChatSession` in the current scope
+src/agent/state_machine.rs:347:52: error[E0616]: field `sessions` of struct `SessionManager` is private: private field
+src/agent/state_machine.rs:379:13: warning: variable does not need to be mutable
+src/agent/state_machine.rs:502:25: warning: unused variable: `slides_json`: help: if this is intentional, prefix it with an underscore: `_slides_json`
+src/agent/state_machine.rs:639:9: warning: unused variable: `session`: help: if this is intentional, prefix it with an underscore: `_session`
+src/agent/state_machine.rs:640:9: warning: unused variable: `params`: help: if this is intentional, prefix it with an underscore: `_params`
+src/agent/state_machine.rs:641:9: warning: unused variable: `session_manager`: help: if this is intentional, prefix it with an underscore: `_session_manager`
+src/agent/state_machine.rs:642:9: warning: unused variable: `session_id`: help: if this is intentional, prefix it with an underscore: `_session_id`
+src/agent/state_machine.rs:651:9: warning: unused variable: `session`: help: if this is intentional, prefix it with an underscore: `_session`
+src/agent/state_machine.rs:652:9: warning: unused variable: `params`: help: if this is intentional, prefix it with an underscore: `_params`
+src/agent/state_machine.rs:653:9: warning: unused variable: `session_manager`: help: if this is intentional, prefix it with an underscore: `_session_manager`
+src/agent/state_machine.rs:654:9: warning: unused variable: `session_id`: help: if this is intentional, prefix it with an underscore: `_session_id`
+src/agent/state_machine.rs:663:9: warning: unused variable: `session`: help: if this is intentional, prefix it with an underscore: `_session`
+src/agent/state_machine.rs:664:9: warning: unused variable: `params`: help: if this is intentional, prefix it with an underscore: `_params`
+src/agent/state_machine.rs:665:9: warning: unused variable: `session_manager`: help: if this is intentional, prefix it with an underscore: `_session_manager`
+src/agent/state_machine.rs:666:9: warning: unused variable: `session_id`: help: if this is intentional, prefix it with an underscore: `_session_id`
+src/agent/state_machine.rs:675:9: warning: unused variable: `session`: help: if this is intentional, prefix it with an underscore: `_session`
+src/agent/state_machine.rs:676:9: warning: unused variable: `params`: help: if this is intentional, prefix it with an underscore: `_params`
+src/agent/state_machine.rs:677:9: warning: unused variable: `session_manager`: help: if this is intentional, prefix it with an underscore: `_session_manager`
+src/agent/state_machine.rs:678:9: warning: unused variable: `session_id`: help: if this is intentional, prefix it with an underscore: `_session_id`
+src/commands/agent_chat.rs:169:9: error[E0599]: no method named `emit` found for struct `AppHandle` in the current scope
+src/commands/agent_chat.rs:182:13: error[E0599]: no method named `emit` found for struct `AppHandle` in the current scope
+src/commands/agent_chat.rs:199:9: error[E0599]: no method named `emit` found for struct `AppHandle` in the current scope
+src/agent/tools/chart_engine.rs:676:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:677:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:678:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:734:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:735:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:736:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:737:10: error[E0599]: no method named `barmode` found for struct `plotly::Layout` in the current scope
+src/agent/tools/chart_engine.rs:790:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:791:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:792:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:793:10: error[E0599]: no method named `barmode` found for struct `plotly::Layout` in the current scope
+src/agent/tools/chart_engine.rs:848:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:849:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:850:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:918:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:919:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:920:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:973:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:974:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:975:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1027:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:1028:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1029:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1075:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:1076:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1077:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1140:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:1141:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1142:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1211:16: error[E0308]: mismatched types: expected `Vec<&str>`, found `Vec<String>`
+src/agent/tools/chart_engine.rs:1212:16: error[E0277]: the trait bound `Vec<&str>: plotly::color::Color` is not satisfied: the trait `plotly::color::Color` is not implemented for `Vec<&str>`
+src/agent/tools/chart_engine.rs:1228:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:1229:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1230:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1294:23: error[E0308]: mismatched types: expected `usize`, found `Vec<f64>`
+src/agent/tools/chart_engine.rs:1303:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:1304:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1305:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1368:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:1369:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1370:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1423:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:1424:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1425:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1505:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:1506:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1507:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1570:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:1571:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1572:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1624:16: error[E0061]: this function takes 0 arguments but 1 argument was supplied
+src/agent/tools/chart_engine.rs:1625:16: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_engine.rs:1626:17: error[E0308]: mismatched types: expected `usize`, found `u32`
+src/agent/tools/chart_tools.rs:609:85: error[E0599]: no variant or associated item named `Object` found for enum `polars::prelude::DataType` in the current scope: variant or associated item not found in `DataType`
+src/agent/tools/chart_tools.rs:622:32: error[E0599]: no method named `is_numeric` found for reference `&polars::prelude::DataType` in the current scope
+src/agent/tools/chart_tools.rs:708:17: error[E0308]: mismatched types: expected a tuple with 2 elements, found one with 3 elements
+src/agent/tools/chart_tools.rs:717:9: error[E0308]: `if` and `else` have incompatible types: expected `(Vec<&str>, Vec<String>, Vec<Vec<f64>>)`, found `(Vec<String>, Vec<String>, Vec<...>)`
+src/agent/tools/data_tools.rs:52:37: error[E0599]: no method named `data_type` found for struct `polars::prelude::Field` in the current scope
+src/agent/tools/data_tools.rs:78:15: error[E0433]: failed to resolve: use of undeclared type `SQLContext`: use of undeclared type `SQLContext`, help: a trait with a similar name exists: `Context`
+src/agent/tools/data_tools.rs:167:44: error[E0599]: no method named `data_type` found for struct `polars::prelude::Field` in the current scope
+src/agent/tools/data_tools.rs:190:62: error[E0308]: mismatched types: expected `Option<(i64, usize)>`, found `bool`
+src/agent/tools/data_tools.rs:219:72: error[E0593]: closure is expected to take 1 argument, but it takes 0 arguments: expected closure that takes 1 argument
+src/agent/tools/export_tools.rs:111:63: error[E0277]: the trait bound `std::string::String: From<&&polars::prelude::PlSmallStr>` is not satisfied: the trait `From<&&polars::prelude::PlSmallStr>` is not implemented for `std::string::String`
+src/agent/tools/export_tools.rs:120:50: error[E0599]: no variant or associated item named `Object` found for enum `polars::prelude::DataType` in the current scope: variant or associated item not found in `DataType`
+src/agent/tools/export_tools.rs:174:71: warning: use of deprecated associated function `chrono::NaiveDateTime::from_timestamp_millis`: use `DateTime::from_timestamp_millis` instead
+src/agent/tools/export_tools.rs:175:71: warning: use of deprecated associated function `chrono::NaiveDateTime::from_timestamp_opt`: use `DateTime::from_timestamp` instead
+src/agent/tools/export_tools.rs:226:9: warning: unused variable: `markdown`: help: if this is intentional, prefix it with an underscore: `_markdown`
+src/agent/tools/export_tools.rs:241:27: warning: unused variable: `title`: help: if this is intentional, prefix it with an underscore: `_title`
+src/agent/tools/export_tools.rs:301:5: warning: unused variable: `title`: help: if this is intentional, prefix it with an underscore: `_title`
+src/agent/tools/export_tools.rs:369:5: warning: unused variable: `name`: help: if this is intentional, prefix it with an underscore: `_name`
+warning: `tauri-vue-bi` (lib) generated 37 warnings
+error: could not compile `tauri-vue-bi` (lib) due to 86 previous errors; 37 warnings emitted

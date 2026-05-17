@@ -10,6 +10,7 @@ import GanttAnalysis from '../views/GanttAnalysis.vue'
 import MergeAnalysis from '../views/MergeAnalysis.vue'
 import TimeAnalysis from '../views/TimeAnalysis.vue'
 import AIAnalysis from '../views/AIAnalysis.vue'
+import AgentChat from '../views/AgentChat.vue'
 
 const router = createRouter({
   // Tauri 使用 hash 模式路由（避免 file:// 协议下的 404 问题）
@@ -70,6 +71,12 @@ const router = createRouter({
       name: 'ai-analysis',
       component: AIAnalysis,
       meta: { title: '✨ AI智能分析' },
+    },
+    {
+      path: '/agent-chat',
+      name: 'agent-chat',
+      component: AgentChat,
+      meta: { title: '🤖 Rust Agent' },
     },
   ],
 })

@@ -36,6 +36,19 @@
               scrolling="auto"
             />
           </div>
+          <div v-else-if="msg.type === 'chart_generated'" class="chart-wrapper">
+            <button class="chart-expand-btn" @click="openChartFullscreen(msg.html || msg.content)">全屏查看</button>
+            <iframe
+              :srcdoc="msg.html || msg.content"
+              class="chart-iframe"
+              frameborder="0"
+              scrolling="auto"
+            />
+            <div v-if="msg.chartType" class="chart-meta">
+              <el-tag size="small">{{ msg.chartType }}</el-tag>
+              <span v-if="msg.meta?.n_rows" class="meta-info">{{ msg.meta.n_rows }} 行数据</span>
+            </div>
+          </div>
           <div v-else-if="msg.type === 'code_block'" class="code-block">
             <pre><code v-html="highlightCode(msg.content)"></code></pre>
           </div>
