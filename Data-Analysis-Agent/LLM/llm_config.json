@@ -23,7 +23,7 @@
   },
   "deepseek": {
     "provider": "deepseek",
-    "api_key": "sk-98b53995237a441eb4ddc29065737663",
+    "api_key": "sk-xxx",
     "base_url": "https://api.deepseek.com",
     "model": "deepseek-v4-flash",
     "enabled": true,
