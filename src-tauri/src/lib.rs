@@ -15,9 +15,10 @@
 
 // Day-1: 先打通最小 Rust Agent 闭环，暂时不编译旧的 agent 子模块。
 pub mod agent;  // ⚠️ 临时启用以诊断问题
+// pub mod api;     // ✅ 已移至 agent/api 下
 pub mod commands;
 pub mod df_util;
-pub mod llm;  // 新增 LLM 模块
+// pub mod llm;  // ✅ 已移至 agent/llm 下
 pub mod state;
 pub mod types;
 

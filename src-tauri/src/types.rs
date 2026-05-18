@@ -32,18 +32,18 @@ impl<T: Serialize> ApiResult<T> {
     }
 }
 
-/// A lightweight, serialisable representation of a DataFrame column.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Schema info for a single column.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ColumnInfo {
     pub name: String,
     pub dtype: String,
+    pub nullable: bool,
 }
 
-/// Represents a single row as a map of column-name → JSON value,
-/// compatible with ECharts `dataset.source`.
+/// Row data as a map of column name -> value.
 pub type RowMap = serde_json::Map<String, serde_json::Value>;
 
-/// Payload returned by `fetch_chart_data` and similar commands.
+/// Payload sent to frontend for chart rendering.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChartPayload {
     pub columns: Vec<ColumnInfo>,
@@ -52,27 +52,40 @@ pub struct ChartPayload {
     pub notices: Vec<String>,
 }
 
-/// Lightweight metadata for a registered dataset (serialised to frontend).
+/// Dataset metadata.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DatasetMeta {
     pub id: String,
     pub name: String,
-    pub source: String,
-    pub total_rows: usize,
-    pub total_cols: usize,
-    pub created_at_ms: u128,
+    pub path: String,
+    pub size_bytes: u64,
+    pub modified_at_ms: u64,
+    pub created_at_ms: u64,
 }
 
-/// Full in-memory dataset record (DataFrame + metadata).
-#[derive(Debug, Clone)]
+/// Dataset record for persistence.
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DatasetRecord {
-    pub meta: DatasetMeta,
-    pub df: polars::prelude::DataFrame,
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub modified_at: u64,
+    pub created_at: u64,
 }
 
-/// Persisted state written to / read from `state.json`.
+/// Runtime dataset entry (contains both meta and DataFrame)
+#[derive(Debug, Clone)]
+pub struct RuntimeDataset {
+    pub meta: DatasetMeta,
+    pub df: DataFrame,
+}
+
+use polars::prelude::DataFrame;
+
+/// Persisted dataset state.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PersistedDatasetState {
-    pub active_dataset_id: Option<String>,
-    pub datasets: Vec<DatasetMeta>,
+    pub datasets: Vec<DatasetRecord>,
+    pub current_id: Option<String>,
 }

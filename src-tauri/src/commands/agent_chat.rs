@@ -13,7 +13,7 @@ use crate::agent::state_machine::{BusinessAgent as AgentStateMachine, AgentRunPa
 // ✅ 使用 include_str! 直接嵌入工具 schema JSON，避免模块依赖
 use crate::commands::chart::fetch_chart_data_impl;
 use crate::df_util::df_to_payload;
-use crate::llm::{LLMClient, Message, MessageRole, OpenAIClient,};
+use crate::agent::llm::{LLMClient, Message, MessageRole, OpenAIClient,};
 use crate::state::GLOBAL_DF;
 
 // ✅ 新增：全局图表存储（用于存储生成的图表 HTML）
@@ -131,7 +131,7 @@ struct ChatMessage {
     tool_call_id: Option<String>,
     /// ✅ 新增：支持 tool_calls（用于 assistant 的工具调用）
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_calls: Option<Vec<crate::llm::ToolCall>>,
+    tool_calls: Option<Vec<crate::agent::llm::ToolCall>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -700,27 +700,28 @@ pub async fn chat_stream(
         // 迁移所有会话数据
         for (id, local_session) in &local_mgr.sessions {
             // 创建新的 ChatSession
-            let mut new_session = crate::agent::session::ChatSession::new(&local_session.model_id);
+            let mut new_session = crate::agent::session::ChatSession::new(Some(local_session.model_id.clone()));
             new_session.id = id.clone();
             new_session.title = local_session.title.clone();
-            new_session.created_at = local_session.created_at;
-            new_session.updated_at = local_session.updated_at;
+            new_session.created_at = local_session.created_at.to_string();
+            new_session.updated_at = local_session.updated_at.to_string();
             
-            // 迁移消息 - ✅ 完整保留所有字段
+            // 迁移消息
             for msg in &local_session.messages {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
+                let role = match msg.role.as_str() {
+                    "user" => crate::agent::session::MessageRole::User,
+                    "assistant" => crate::agent::session::MessageRole::Assistant,
+                    "system" => crate::agent::session::MessageRole::System,
+                    _ => crate::agent::session::MessageRole::User,
+                };
                 
-                // ✅ 直接创建完整的 ChatMessage，保留所有字段
-                new_session.messages.push(crate::agent::session::ChatMessage {
-                    role: msg.role.clone(),
+                new_session.messages.push(crate::agent::session::Message {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    role,
                     content: msg.content.clone(),
-                    timestamp: now,
-                    reasoning_content: msg.reasoning_content.clone(), // ✅ 迁移 reasoning_content
-                    tool_call_id: msg.tool_call_id.clone(),
+                    reasoning_content: msg.reasoning_content.clone(),
                     tool_calls: msg.tool_calls.clone(),
+                    timestamp: Some(msg.timestamp.to_string()),
                 });
             }
             

@@ -94,7 +94,7 @@ pub async fn save_current_dataset(name: String, source: Option<String>) -> ApiRe
             Some(df) => df.clone(),
         }
     };
-    let meta = register_dataset(
+    let id = register_dataset(
         &df,
         if name.trim().is_empty() {
             "子数据集".to_string()
@@ -103,7 +103,18 @@ pub async fn save_current_dataset(name: String, source: Option<String>) -> ApiRe
         },
         source.unwrap_or_else(|| "manual_save".to_string()),
     );
-    ApiResult::success(meta)
+    
+    match id {
+        Ok(id) => {
+            let registry = DATASET_REGISTRY.lock().unwrap();
+            if let Some(record) = registry.iter().find(|r| r.meta.id == id) {
+                ApiResult::success(record.meta.clone())
+            } else {
+                ApiResult::failure("Failed to get dataset meta")
+            }
+        }
+        Err(e) => ApiResult::failure(e.to_string()),
+    }
 }
 
 #[tauri::command]
@@ -187,6 +198,17 @@ pub async fn sort_and_save_dataset(
     };
 
     // 保存为新数据集
-    let meta = register_dataset(&sorted_df, name, "sort_and_save".to_string());
-    ApiResult::success(meta)
+    let id = register_dataset(&sorted_df, name, "sort_and_save".to_string());
+    
+    match id {
+        Ok(id) => {
+            let registry = DATASET_REGISTRY.lock().unwrap();
+            if let Some(record) = registry.iter().find(|r| r.meta.id == id) {
+                ApiResult::success(record.meta.clone())
+            } else {
+                ApiResult::failure("Failed to get dataset meta")
+            }
+        }
+        Err(e) => ApiResult::failure(e.to_string()),
+    }
 }

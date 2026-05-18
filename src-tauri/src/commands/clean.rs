@@ -64,7 +64,7 @@ pub async fn clean_data(
     ) {
         Ok(result_df) => {
             *GLOBAL_DF.lock().unwrap() = Some(result_df.clone());
-            sync_active_dataset(&result_df);
+            sync_active_dataset();
             match df_to_payload(&result_df, Some(PREVIEW_LIMIT)) {
                 Ok(p) => ApiResult::success(p),
                 Err(e) => ApiResult::failure(e.to_string()),
@@ -88,7 +88,7 @@ pub async fn undo_clean() -> ApiResult<ChartPayload> {
     };
 
     *GLOBAL_DF.lock().unwrap() = Some(prev.clone());
-    sync_active_dataset(&prev);
+    sync_active_dataset();
     match df_to_payload(&prev, Some(PREVIEW_LIMIT)) {
         Ok(p) => ApiResult::success(p),
         Err(e) => ApiResult::failure(e.to_string()),
@@ -111,7 +111,7 @@ pub async fn rollback_clean() -> ApiResult<ChartPayload> {
 
     *GLOBAL_DF.lock().unwrap() = Some(original.clone());
     CLEAN_HISTORY.lock().unwrap().clear();
-    sync_active_dataset(&original);
+    sync_active_dataset();
     match df_to_payload(&original, Some(PREVIEW_LIMIT)) {
         Ok(p) => ApiResult::success(p),
         Err(e) => ApiResult::failure(e.to_string()),

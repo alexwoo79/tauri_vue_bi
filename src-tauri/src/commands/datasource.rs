@@ -36,8 +36,10 @@ fn set_loaded_df(df: DataFrame, dataset_name: String, source: &str) -> ApiResult
     *GLOBAL_DF.lock().unwrap() = Some(df.clone());
     *ORIGINAL_DF.lock().unwrap() = Some(df.clone());
     CLEAN_HISTORY.lock().unwrap().clear();
-    let meta = register_dataset(&df, dataset_name, source.to_string());
-    *ACTIVE_DATASET_ID.lock().unwrap() = Some(meta.id);
+    let id = register_dataset(&df, dataset_name, source.to_string());
+    if let Ok(id) = id {
+        *ACTIVE_DATASET_ID.lock().unwrap() = Some(id);
+    }
     if let Err(e) = persist_dataset_registry() {
         eprintln!("persist dataset registry failed: {e}");
     }

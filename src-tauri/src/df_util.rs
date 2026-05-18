@@ -3,25 +3,20 @@
 // DataFrame → ChartPayload 工具函数（DataFrame Utility Functions）
 //
 // 将 Polars DataFrame 序列化为前端可消费的 ChartPayload JSON 结构。
-// 同时提供列类型推断辅助函数，用于让前端在不了解 Polars 内部类型的情况下
-// 正确渲染日期/时间类字段。
 
 use anyhow::Result;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use once_cell::sync::Lazy;
 use polars::prelude::*;
+use polars::series::Series;
 use regex::Regex;
+use serde_json;
 
 use crate::types::{ChartPayload, ColumnInfo, RowMap};
 
-/// Maximum rows serialised when returning a preview (load / clean results).
 pub const PREVIEW_LIMIT: usize = 200;
-/// Maximum rows serialised for chart / pivot / groupby results.
 pub const CHART_LIMIT: usize = 5_000;
 
-/// Convert a Polars DataFrame to a `ChartPayload`.
-///
-/// `limit` caps the number of rows serialised (preview mode). Pass `None` to
-/// serialise all rows.
 pub fn df_to_payload(df: &DataFrame, limit: Option<usize>) -> Result<ChartPayload> {
     let total_rows = df.height();
     let preview_n = limit.map(|l| l.min(total_rows)).unwrap_or(total_rows);
@@ -31,24 +26,30 @@ pub fn df_to_payload(df: &DataFrame, limit: Option<usize>) -> Result<ChartPayloa
         .iter()
         .map(|s| ColumnInfo {
             name: s.name().to_string(),
-            dtype: infer_payload_dtype(s),
+            dtype: s.dtype().to_string(),
+            nullable: s.null_count() > 0,
         })
         .collect();
 
-    let col_names: Vec<String> = df
-        .get_columns()
-        .iter()
-        .map(|s| s.name().to_string())
-        .collect();
-
-    let mut rows: Vec<RowMap> = Vec::with_capacity(preview_n);
-    for row_idx in 0..preview_n {
-        let mut map = serde_json::Map::with_capacity(col_names.len());
-        for (i, column) in df.get_columns().iter().enumerate() {
-            let val = series_value_to_json(column, row_idx);
-            map.insert(col_names[i].clone(), val);
+    let mut rows: Vec<RowMap> = Vec::new();
+    let n_rows = df.height().min(preview_n);
+    let column_names: Vec<String> = df.get_column_names().iter().map(|s| s.to_string()).collect();
+    
+    for row_idx in 0..n_rows {
+        let mut row_map = RowMap::new();
+        for col_name in &column_names {
+            let json_val = match df.column(col_name.as_str()) {
+                Ok(col) => {
+                    match col.get(row_idx) {
+                        Ok(v) => v_to_json(&v),
+                        Err(_) => serde_json::Value::Null,
+                    }
+                }
+                Err(_) => serde_json::Value::Null,
+            };
+            row_map.insert(col_name.clone(), json_val);
         }
-        rows.push(map);
+        rows.push(row_map);
     }
 
     Ok(ChartPayload {
@@ -59,128 +60,129 @@ pub fn df_to_payload(df: &DataFrame, limit: Option<usize>) -> Result<ChartPayloa
     })
 }
 
-fn infer_payload_dtype(s: &Column) -> String {
-    let real = format!("{}", s.dtype());
-    if s.dtype() != &DataType::String {
-        return real;
+fn v_to_json(v: &AnyValue) -> serde_json::Value {
+    match v {
+        AnyValue::Null => serde_json::Value::Null,
+        AnyValue::Boolean(b) => serde_json::Value::Bool(*b),
+        AnyValue::Int8(i) => serde_json::Value::Number((*i).into()),
+        AnyValue::Int16(i) => serde_json::Value::Number((*i).into()),
+        AnyValue::Int32(i) => serde_json::Value::Number((*i).into()),
+        AnyValue::Int64(i) => serde_json::Value::Number((*i).into()),
+        AnyValue::UInt8(i) => serde_json::Value::Number((*i).into()),
+        AnyValue::UInt16(i) => serde_json::Value::Number((*i).into()),
+        AnyValue::UInt32(i) => serde_json::Value::Number((*i).into()),
+        AnyValue::UInt64(i) => serde_json::Value::Number((*i).into()),
+        AnyValue::Float32(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f as f64).unwrap()),
+        AnyValue::Float64(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap()),
+        AnyValue::String(s) => serde_json::Value::String(s.to_string()),
+        AnyValue::Binary(b) => serde_json::Value::String(STANDARD.encode::<&[u8]>(b)),
+        AnyValue::Date(d) => serde_json::Value::String(d.to_string()),
+        AnyValue::Datetime(d, _, _) => serde_json::Value::String(d.to_string()),
+        AnyValue::Time(t) => serde_json::Value::String(t.to_string()),
+        AnyValue::Duration(d, _) => serde_json::Value::Number((*d).into()),
+        AnyValue::List(_) => serde_json::Value::Array(Vec::new()),
+        AnyValue::Struct(_, _, _) => serde_json::Value::Object(RowMap::new()),
+        _ => serde_json::Value::Null,
     }
-    if let Some(inferred) = infer_temporal_string_dtype(s) {
-        return inferred;
-    }
-    real
 }
 
-fn infer_temporal_string_dtype(s: &Column) -> Option<String> {
-    static DATE_RE_YYYY_MM_DD: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$").expect("valid date regex"));
-    static DATE_RE_DD_MM_YYYY: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"^\d{1,2}[-/]\d{1,2}[-/]\d{4}$").expect("valid date regex"));
-    static DATE_RE_YYYYMMDD: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"^\d{8}$").expect("valid date regex"));
-    static DATETIME_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{2}(:\d{2})?(\.\d+)?$")
-            .expect("valid datetime regex")
-    });
-
-    let name = s.name().to_lowercase();
-    let has_time_name_hint = [
-        "date",
-        "time",
-        "start",
-        "end",
-        "begin",
-        "finish",
-        "deadline",
-        "due",
-        "milestone",
-        "created",
-        "updated",
-        "日期",
-        "时间",
-        "开始",
-        "结束",
-        "里程碑",
-        "截止",
-    ]
-    .iter()
-    .any(|k| name.contains(k));
-
-    let utf8 = s.as_materialized_series().str().ok()?;
-    let mut sampled = 0usize;
-    let mut date_hits = 0usize;
-    let mut datetime_hits = 0usize;
-
-    for opt in utf8 {
-        let raw = match opt {
-            Some(v) => v.trim(),
-            None => continue,
-        };
-        if raw.is_empty() {
-            continue;
-        }
-        sampled += 1;
-
-        if DATETIME_RE.is_match(raw)
-            || (raw.contains(':')
-                && (DATE_RE_YYYY_MM_DD.is_match(raw.split(' ').next().unwrap_or(""))
-                    || raw.contains('T')))
-        {
-            datetime_hits += 1;
-        } else if DATE_RE_YYYY_MM_DD.is_match(raw)
-            || DATE_RE_DD_MM_YYYY.is_match(raw)
-            || DATE_RE_YYYYMMDD.is_match(raw)
-        {
-            date_hits += 1;
-        }
-
-        if sampled >= 50 {
-            break;
-        }
-    }
-
-    if sampled < 3 {
-        return None;
-    }
-
-    let threshold = if has_time_name_hint { 0.45 } else { 0.75 };
-    let datetime_ratio = datetime_hits as f64 / sampled as f64;
-    let date_ratio = (date_hits + datetime_hits) as f64 / sampled as f64;
-
-    if datetime_ratio >= threshold {
-        Some("datetime".to_string())
-    } else if date_ratio >= threshold {
-        Some("date".to_string())
+pub fn infer_column_type(s: &Series) -> String {
+    let dtype = s.dtype();
+    
+    if dtype.is_integer() || dtype.is_float() {
+        "numeric".to_string()
+    } else if dtype.is_temporal() {
+        "datetime".to_string()
+    } else if dtype.is_string() {
+        "string".to_string()
+    } else if dtype.is_bool(){
+        "boolean".to_string()
     } else {
-        None
+        "other".to_string()
     }
 }
 
-/// Extract a single cell from a `Column` as a JSON `Value`.
-pub fn series_value_to_json(s: &Column, idx: usize) -> serde_json::Value {
-    use serde_json::Value;
-    use AnyValue::*;
-
-    match s
-        .as_materialized_series()
-        .get(idx)
-        .unwrap_or(AnyValue::Null)
-    {
-        Null => Value::Null,
-        Boolean(v) => Value::Bool(v),
-        Int8(v) => Value::Number(v.into()),
-        Int16(v) => Value::Number(v.into()),
-        Int32(v) => Value::Number(v.into()),
-        Int64(v) => Value::Number(v.into()),
-        UInt8(v) => Value::Number(v.into()),
-        UInt16(v) => Value::Number(v.into()),
-        UInt32(v) => Value::Number(v.into()),
-        UInt64(v) => Value::Number(v.into()),
-        Float32(v) => serde_json::Number::from_f64(v as f64)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
-        Float64(v) => serde_json::Number::from_f64(v)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
-        other => Value::String(format!("{other}")),
+pub fn detect_date_column(s: &Series) -> bool {
+    if !s.dtype().is_string() {
+        return false;
     }
+    
+    let sample_size = s.len().min(100);
+    let mut date_count = 0;
+    
+    static DATE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+        vec![
+            Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap(),
+            Regex::new(r"^\d{2}/\d{2}/\d{4}$").unwrap(),
+            Regex::new(r"^\d{2}/\d{2}/\d{2}$").unwrap(),
+            Regex::new(r"^\d{4}/\d{2}/\d{2}$").unwrap(),
+            Regex::new(r"^\d{1,2}\s+[A-Za-z]+\s+\d{4}$").unwrap(),
+        ]
+    });
+    
+    for i in 0..sample_size {
+        if let Ok(v) = s.get(i) {
+            if let AnyValue::String(s) = v {
+                if DATE_PATTERNS.iter().any(|p| p.is_match(s)) {
+                    date_count += 1;
+                }
+            }
+        }
+    }
+    
+    date_count > sample_size / 2
+}
+
+pub fn detect_date_column_col(col: &Column) -> bool {
+    if !col.dtype().is_string() {
+        return false;
+    }
+    
+    let sample_size = col.len().min(100);
+    let mut date_count = 0;
+    
+    static DATE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+        vec![
+            Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap(),
+            Regex::new(r"^\d{2}/\d{2}/\d{4}$").unwrap(),
+            Regex::new(r"^\d{2}/\d{2}/\d{2}$").unwrap(),
+            Regex::new(r"^\d{4}/\d{2}/\d{2}$").unwrap(),
+            Regex::new(r"^\d{1,2}\s+[A-Za-z]+\s+\d{4}$").unwrap(),
+        ]
+    });
+    
+    for i in 0..sample_size {
+        if let Ok(v) = col.get(i) {
+            if let AnyValue::String(s) = v {
+                if DATE_PATTERNS.iter().any(|p| p.is_match(s)) {
+                    date_count += 1;
+                }
+            }
+        }
+    }
+    
+    date_count > sample_size / 2
+}
+
+pub fn get_columns_by_type(df: &DataFrame, col_type: &str) -> Vec<String> {
+    let col_names: Vec<String> = df.get_column_names().iter().map(|s| s.to_string()).collect();
+    col_names
+        .iter()
+        .filter(|name| {
+            match df.column(name.as_str()) {
+                Ok(col) => {
+                    let dtype = col.dtype();
+                    match col_type {
+                        "numeric" => dtype.is_integer() || dtype.is_float(),
+                        "string" => dtype.is_string(),
+                        "datetime" => dtype.is_temporal() || detect_date_column_col(col),
+                        "boolean" => dtype.is_bool(),
+                        _ => true,
+                    }
+                }
+                Err(_) => false,
+            }
+        })
+        .cloned()
+        .collect()
 }

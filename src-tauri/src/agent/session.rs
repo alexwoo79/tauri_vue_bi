@@ -29,118 +29,106 @@ impl MessageRole {
             MessageRole::System => "system",
         }
     }
-    
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "user" => MessageRole::User,
-            "assistant" => MessageRole::Assistant,
-            "system" => MessageRole::System,
-            _ => MessageRole::User,
+}
+
+/// 兼容旧版本的 ChatMessage（用于 agent_chat.rs）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+    pub timestamp: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<crate::agent::llm::ToolCall>>,
+}
+
+/// 单条消息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Message {
+    pub id: String,
+    pub role: MessageRole,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<crate::agent::llm::ToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+}
+
+impl Message {
+    pub fn new(role: MessageRole, content: String) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            role,
+            content,
+            reasoning_content: None,
+            tool_calls: None,
+            timestamp: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
         }
     }
 }
 
-/// 聊天消息
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatMessage {
-    pub role: String,  // "user" or "assistant" or "tool"
-    pub content: String,
-    pub timestamp: u64,
-    /// ✅ 新增：支持 reasoning_content（用于 thinking 模型）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_content: Option<String>,
-    /// ✅ 新增：支持 tool_call_id（用于工具调用结果）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
-    /// ✅ 新增：支持 tool_calls（用于 assistant 的工具调用）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<crate::llm::ToolCall>>,
-}
-
-/// 会话状态
+/// 聊天会话
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatSession {
     pub id: String,
+    pub name: String,
     pub title: String,
     pub model_id: String,
-    pub messages: Vec<ChatMessage>,
-    pub created_at: u64,
-    pub updated_at: u64,
-    pub cancel_requested: bool,  // ✅ 添加取消请求标志
+    pub messages: Vec<Message>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 impl ChatSession {
-    /// 创建新会话
-    pub fn new(model_id: &str) -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        
+    pub fn new(name: Option<String>) -> Self {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let name_str = name.unwrap_or_else(|| "New Session".to_string());
         Self {
             id: Uuid::new_v4().to_string(),
-            title: "新会话".to_string(),
-            model_id: model_id.to_string(),
+            name: name_str.clone(),
+            title: name_str,
+            model_id: "".to_string(),
             messages: Vec::new(),
-            created_at: now,
+            created_at: now.clone(),
             updated_at: now,
-            cancel_requested: false,  // ✅ 初始化取消标志
         }
     }
-    
-    /// 添加用户消息
+
+    pub fn with_name(name: &str) -> Self {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        Self {
+            id: Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            title: name.to_string(),
+            model_id: "".to_string(),
+            messages: Vec::new(),
+            created_at: now.clone(),
+            updated_at: now,
+        }
+    }
+
+    pub fn add_message(&mut self, message: Message) {
+        self.messages.push(message);
+        self.updated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    }
+
     pub fn add_user_message(&mut self, content: &str) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        
-        self.messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: content.to_string(),
-            timestamp: now,
-            reasoning_content: None,  // ✅ 用户消息不包含 reasoning_content
-            tool_call_id: None,  // ✅ 用户消息不包含 tool_call_id
-            tool_calls: None,  // ✅ 用户消息不包含 tool_calls
-        });
-        
-        self.updated_at = now;
-        
-        // 如果标题还是默认的，用第一条消息作为标题
-        if self.title == "新会话" && self.messages.len() == 1 {
-            self.title = content.chars().take(20).collect::<String>();
-        }
+        self.add_message(Message::new(MessageRole::User, content.to_string()));
     }
-    
-    /// ✅ 新增：添加用户消息的别名方法（兼容旧 API）
-    pub fn add_user(&mut self, content: &str) {
-        self.add_user_message(content);
-    }
-    
-    /// 添加助手消息
+
     pub fn add_assistant_message(&mut self, content: &str) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        
-        self.messages.push(ChatMessage {
-            role: "assistant".to_string(),
-            content: content.to_string(),
-            timestamp: now,
-            reasoning_content: None,  // ✅ 普通助手消息不包含 reasoning_content
-            tool_call_id: None,  // ✅ 助手消息默认不包含 tool_call_id
-            tool_calls: None,  // ✅ 助手消息默认不包含 tool_calls
-        });
-        
-        self.updated_at = now;
+        self.add_message(Message::new(MessageRole::Assistant, content.to_string()));
     }
-    
-    /// ✅ 新增：添加包含工具调用的助手消息
+
     pub fn add_assistant_message_with_tools(
         &mut self,
         content: &str,
-        tool_calls: Vec<crate::llm::ToolCall>,
+        tool_calls: Vec<crate::agent::llm::ToolCall>,
     ) {
         self.add_assistant_message_with_tools_and_reasoning(content, None, tool_calls);
     }
@@ -150,158 +138,108 @@ impl ChatSession {
         &mut self,
         content: &str,
         reasoning_content: Option<String>,
-        tool_calls: Vec<crate::llm::ToolCall>,
+        tool_calls: Vec<crate::agent::llm::ToolCall>,
     ) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        
-        self.messages.push(ChatMessage {
-            role: "assistant".to_string(),
-            content: content.to_string(),
-            timestamp: now,
-            reasoning_content,
-            tool_call_id: None,
-            tool_calls: Some(tool_calls),
-        });
-        
-        self.updated_at = now;
+        let mut message = Message::new(MessageRole::Assistant, content.to_string());
+        message.reasoning_content = reasoning_content;
+        message.tool_calls = Some(tool_calls);
+        self.add_message(message);
     }
-    
-    /// ✅ 新增：添加工具调用结果消息
-    pub fn add_tool_message(&mut self, content: &str, tool_call_id: &str) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        
-        self.messages.push(ChatMessage {
-            role: "tool".to_string(),
-            content: content.to_string(),
-            timestamp: now,
-            reasoning_content: None,  // ✅ tool 消息不包含 reasoning_content
-            tool_call_id: Some(tool_call_id.to_string()),
-            tool_calls: None,
-        });
-        
-        self.updated_at = now;
+
+    pub fn add_system_message(&mut self, content: &str) {
+        self.add_message(Message::new(MessageRole::System, content.to_string()));
     }
-    
-    /// ✅ 新增：添加助手消息的别名方法（兼容旧 API）
-    pub fn add_assistant(&mut self, content: &str) {
-        self.add_assistant_message(content);
-    }
-    
-    /// 清除历史
-    pub fn clear_history(&mut self) {
-        self.messages.clear();
-        self.updated_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-    }
-    
-    /// 获取最近的历史消息（最多 n 条）
-    pub fn recent_history(&self, n: usize) -> Vec<&ChatMessage> {
-        let len = self.messages.len();
-        if len <= n {
-            self.messages.iter().collect()
-        } else {
-            self.messages.iter().skip(len - n).collect()
-        }
+
+    pub fn get_messages_for_llm(&self) -> Vec<crate::agent::llm::Message> {
+        self.messages
+            .iter()
+            .map(|msg| {
+                crate::agent::llm::Message {
+                    role: match msg.role {
+                        MessageRole::User => crate::agent::llm::MessageRole::User,
+                        MessageRole::Assistant => crate::agent::llm::MessageRole::Assistant,
+                        MessageRole::System => crate::agent::llm::MessageRole::System,
+                    },
+                    content: msg.content.clone(),
+                    reasoning_content: msg.reasoning_content.clone(),
+                    tool_calls: msg.tool_calls.clone(),
+                    tool_call_id: None,
+                }
+            })
+            .collect()
     }
 }
 
 /// 会话管理器
-#[derive(Debug)]
 pub struct SessionManager {
     sessions: HashMap<String, ChatSession>,
+    current_session_id: Option<String>,
 }
 
 impl SessionManager {
-    /// 创建新的会话管理器
     pub fn new() -> Self {
         Self {
             sessions: HashMap::new(),
+            current_session_id: None,
         }
     }
-    
-    /// 创建新会话
-    pub fn create_session(&mut self, model_id: &str) -> Result<String> {
-        let session = ChatSession::new(model_id);
-        let session_id = session.id.clone();
-        
-        self.sessions.insert(session_id.clone(), session);
-        
-        Ok(session_id)
-    }
-    
-    /// 删除会话
-    pub fn delete_session(&mut self, session_id: &str) -> Result<()> {
-        self.sessions.remove(session_id)
-            .context("Session not found")?;
-        Ok(())
-    }
-    
-    /// 获取会话
-    pub fn get_session(&self, session_id: &str) -> Option<&ChatSession> {
-        self.sessions.get(session_id)
-    }
-    
-    /// 获取可变会话引用
-    pub fn get_session_mut(&mut self, session_id: &str) -> Option<&mut ChatSession> {
-        self.sessions.get_mut(session_id)
-    }
-    
-    /// 列出所有会话
-    pub fn list_sessions(&self) -> Result<Vec<&ChatSession>> {
-        Ok(self.sessions.values().collect())
-    }
-    
-    /// 清除会话历史
-    pub fn clear_history(&mut self, session_id: &str) -> Result<()> {
-        let session = self.sessions.get_mut(session_id)
-            .context("Session not found")?;
-        
-        session.clear_history();
-        Ok(())
-    }
-    
-    /// 检查会话是否存在
-    pub fn has_session(&self, session_id: &str) -> bool {
-        self.sessions.contains_key(session_id)
-    }
-    
-    /// 添加消息到会话
-    pub fn add_message(&mut self, session_id: &str, role: &str, content: &str) -> Result<()> {
-        let session = self.sessions.get_mut(session_id)
-            .context("Session not found")?;
-        
-        if role == "user" {
-            session.add_user_message(content);
-        } else if role == "assistant" {
-            session.add_assistant_message(content);
-        } else {
-            return Err(anyhow::anyhow!("Invalid role: {}", role));
-        }
-        
-        Ok(())
-    }
-    
-    /// ✅ 新增：获取 sessions HashMap 的可变引用（用于 state_machine）
+
     pub fn get_sessions_mut(&mut self) -> &mut HashMap<String, ChatSession> {
         &mut self.sessions
     }
-    
-    /// ✅ 新增：获取 sessions HashMap 的不可变引用
-    pub fn get_sessions(&self) -> &HashMap<String, ChatSession> {
-        &self.sessions
+
+    pub fn create_session(&mut self, name: Option<String>) -> String {
+        let session = ChatSession::new(name);
+        let session_id = session.id.clone();
+        self.sessions.insert(session_id.clone(), session);
+        self.current_session_id = Some(session_id.clone());
+        session_id
+    }
+
+    pub fn get_session(&self, session_id: &str) -> Option<&ChatSession> {
+        self.sessions.get(session_id)
+    }
+
+    pub fn get_session_mut(&mut self, session_id: &str) -> Option<&mut ChatSession> {
+        self.sessions.get_mut(session_id)
+    }
+
+    pub fn delete_session(&mut self, session_id: &str) -> bool {
+        let deleted = self.sessions.remove(session_id).is_some();
+        if self.current_session_id.as_deref() == Some(session_id) {
+            self.current_session_id = None;
+        }
+        deleted
+    }
+
+    pub fn list_sessions(&self) -> Vec<ChatSession> {
+        self.sessions.values().cloned().collect()
+    }
+
+    pub fn set_current_session(&mut self, session_id: &str) -> bool {
+        if self.sessions.contains_key(session_id) {
+            self.current_session_id = Some(session_id.to_string());
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn get_current_session(&self) -> Option<&ChatSession> {
+        self.current_session_id
+            .as_ref()
+            .and_then(|id| self.sessions.get(id))
+    }
+
+    pub fn get_current_session_mut(&mut self) -> Option<&mut ChatSession> {
+        self.current_session_id
+            .as_ref()
+            .and_then(|id| self.sessions.get_mut(id))
     }
 }
 
-impl Default for SessionManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+/// 全局会话管理器
+pub static GLOBAL_SESSION_MANAGER: Lazy<Mutex<SessionManager>> = 
+    Lazy::new(|| Mutex::new(SessionManager::new()));
+
+use once_cell::sync::Lazy;

@@ -180,10 +180,10 @@ pub async fn load_paths_as_datasets(
             .and_then(|s| s.to_str())
             .unwrap_or("加载数据")
             .to_string();
-        let meta = register_dataset(&output.df, file_name, "load_paths_as_datasets".to_string());
+        let dataset_id = register_dataset(&output.df, file_name, "load_paths_as_datasets".to_string())?;
 
         if first_df.is_none() {
-            first_dataset_id = meta.id;
+            first_dataset_id = dataset_id;
             first_notices = output.notices;
             first_df = Some(output.df);
         }

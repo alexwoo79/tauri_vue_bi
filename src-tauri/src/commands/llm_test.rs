@@ -1,4 +1,4 @@
-use crate::llm::{LLMClient, Message, OpenAIClient};//、✅ 暂时禁用 Claude，专注于调试 OpenAI  
+use crate::agent::llm::{LLMClient, Message, OpenAIClient};//、✅ 暂时禁用 Claude，专注于调试 OpenAI  
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
