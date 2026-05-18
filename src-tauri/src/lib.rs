@@ -14,8 +14,8 @@
 //   • commands/     — 各领域命令（loader / chart / clean / pivot / melt / groupby / gantt / save / dataset）
 
 // Day-1: 先打通最小 Rust Agent 闭环，暂时不编译旧的 agent 子模块。
-pub mod agent;  // ⚠️ 临时启用以诊断问题
-// pub mod api;     // ✅ 已移至 agent/api 下
+pub mod agent; // ⚠️ 临时启用以诊断问题
+               // pub mod api;     // ✅ 已移至 agent/api 下
 pub mod commands;
 pub mod df_util;
 // pub mod llm;  // ✅ 已移至 agent/llm 下
@@ -24,14 +24,26 @@ pub mod types;
 
 use crate::commands::{
     agent_chat::{
-        create_session, delete_session, list_sessions, clear_session_history,
+        chart_workflow,
+        chat_stream,
+        clear_session_history,
+        create_session,
+        delete_session,
+        export_excel,
+        generate_chart,
+        generate_dashboard,
+        generate_ppt,
+        generate_report,
+        list_chart_types, // 新增图表生成命令
+        list_sessions,
         stop_session,
-        chat_stream, export_excel, generate_ppt, generate_report, generate_dashboard,
-        generate_chart, chart_workflow, list_chart_types,  // 新增图表生成命令
     },
     chart::fetch_chart_data,
     clean::{clean_data, rollback_clean, undo_clean},
-    dataset::{delete_datasets, get_dataset_columns, list_datasets, save_current_dataset, sort_and_save_dataset, switch_dataset},
+    dataset::{
+        delete_datasets, get_dataset_columns, list_datasets, save_current_dataset,
+        sort_and_save_dataset, switch_dataset,
+    },
     datasource::{load_google_sheet_dataset, load_http_api_dataset, load_sql_dataset},
     gantt::fetch_gantt_data,
     groupby::groupby_agg,
@@ -40,14 +52,12 @@ use crate::commands::{
     melt::melt_data,
     merge::{concat_datasets, concat_paths, join_datasets},
     pivot::pivot_data,
-    python_agent::{python_agent_health, python_agent_status, start_python_agent, stop_python_agent},
+    python_agent::{
+        python_agent_health, python_agent_status, start_python_agent, stop_python_agent,
+    },
     save::save_file,
     time_analysis::{
-        time_derive_columns,
-        time_agg,
-        time_rolling_avg,
-        time_growth_rate,
-        time_fill_missing,
+        time_agg, time_derive_columns, time_fill_missing, time_growth_rate, time_rolling_avg,
     },
 };
 
@@ -55,6 +65,14 @@ use crate::commands::{
 pub fn run() {
     if let Err(e) = state::load_persisted_dataset_registry() {
         eprintln!("load persisted dataset registry failed: {e}");
+    }
+
+    // Ensure OUT_DIR is set (workaround for build script issues)
+    if std::env::var("OUT_DIR").is_err() {
+        // Set OUT_DIR to a temp directory if not set
+        let temp_dir = std::env::temp_dir().join("tauri_out_dir");
+        std::fs::create_dir_all(&temp_dir).ok();
+        std::env::set_var("OUT_DIR", &temp_dir);
     }
 
     tauri::Builder::default()
@@ -103,15 +121,15 @@ pub fn run() {
             generate_ppt,
             generate_report,
             generate_dashboard,
-            generate_chart,      // 新增：图表生成
+            generate_chart, // 新增：图表生成
             chart_workflow,
-            list_chart_types,    // 新增：列出图表类型
+            list_chart_types, // 新增：列出图表类型
             start_python_agent,
             stop_python_agent,
             python_agent_status,
             python_agent_health,
             test_llm_chat,
-            test_llm_chat_stream,  // 新增流式命令
+            test_llm_chat_stream, // 新增流式命令
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

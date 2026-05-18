@@ -1,0 +1,18 @@
+{
+  "identifier": "default",
+  "description": "开发模式全开权限",
+  "windows": ["*"],
+  "permissions": [
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "core:event:default",
+    "fs:allow-read",
+    "fs:allow-write",
+    "fs:default",
+    "path:default",
+    "opener:default"
+  ]
+}

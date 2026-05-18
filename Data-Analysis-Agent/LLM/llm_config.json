@@ -23,13 +23,24 @@
   },
   "deepseek": {
     "provider": "deepseek",
-    "api_key": "sk-98b53995237a441eb4ddc29065737663",
+    "api_key": "sk-5cb931f0c95a400bb841ed5f15208e4f",
     "base_url": "https://api.deepseek.com",
     "model": "deepseek-v4-flash",
     "enabled": true,
     "is_custom": false,
     "context_window": 1000000,
     "max_output_tokens": 384000,
+    "enable_thinking": false
+  },
+  "custom_gemma3_1779114648800": {
+    "provider": "custom_gemma3_1779114648800",
+    "api_key": "ollama",
+    "base_url": "http://127.0.0.1:11434/v1",
+    "model": "llama3.2",
+    "enabled": true,
+    "is_custom": true,
+    "context_window": 1000000,
+    "max_output_tokens": 100000,
     "enable_thinking": false
   }
 }

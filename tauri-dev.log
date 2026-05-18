@@ -1,0 +1,616 @@
+
+> tauri-vue-bi@0.1.0 tauri
+> tauri dev
+
+     Running BeforeDevCommand (`npm run dev`)
+
+> tauri-vue-bi@0.1.0 dev
+> vite
+
+
+  VITE v5.4.21  ready in 192 ms
+
+  ➜  Local:   http://localhost:1420/
+     Running DevCommand (`cargo  run --no-default-features --color always --`)
+        Info Watching /Users/alex/Documents/GitHub/tauri_vue_bi/src-tauri for changes...
+[1m[32m   Compiling[0m tauri-vue-bi v0.1.0 (/Users/alex/Documents/GitHub/tauri_vue_bi/src-tauri)
+[1m[36m    Building[0m [=======================> ] 777/780: tauri-vue-bi(build)         [1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Arc`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/session.rs:11:17[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m11[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse std::sync::{Arc, Mutex};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_imports)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused imports: `Context` and `Result`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/session.rs:13:14[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m13[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse anyhow::{Context, Result};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m              [0m[0m[1m[33m^^^^^^^[0m[0m  [0m[0m[1m[33m^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Context`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:13:14[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m13[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse anyhow::{Context, Result};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m              [0m[0m[1m[33m^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Stream`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:14:15[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m14[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse futures::{Stream, StreamExt};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m               [0m[0m[1m[33m^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `std::pin::Pin`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:16:5[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m16[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse std::pin::Pin;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused imports: `ChatChunk`, `ChatResponse`, and `MessageRole`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:20:25[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m20[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse crate::agent::llm::{ChatChunk, ChatResponse, LLMClient, Message, MessageRole, ToolCall};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                         [0m[0m[1m[33m^^^^^^^^^[0m[0m  [0m[0m[1m[33m^^^^^^^^^^^^[0m[0m                      [0m[0m[1m[33m^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `SessionManager`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:21:42[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m21[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse crate::agent::session::{ChatSession, SessionManager};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                          [0m[0m[1m[33m^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `recommend_charts`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:22:55[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m22[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse crate::agent::functions::charts::{generate_chart, recommend_charts};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                                       [0m[0m[1m[33m^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `ChartResult`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:23:73[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m23[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse crate::agent::functions::charts::base::{FieldMapping, ChartOptions, ChartResult};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                                                         [0m[0m[1m[33m^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Context`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/analyze/decile.rs:7:14[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m7[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse anyhow::{Context, Result};[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m              [0m[0m[1m[33m^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `serde_json::json`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/analyze/decile.rs:9:5[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m9[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse serde_json::json;[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Context`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/analyze/decision_tree.rs:7:14[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m7[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse anyhow::{Context, Result};[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m              [0m[0m[1m[33m^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `serde_json::json`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/analyze/decision_tree.rs:9:5[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m9[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse serde_json::json;[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Context`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/analyze/kmeans.rs:7:14[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m7[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse anyhow::{Context, Result};[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m              [0m[0m[1m[33m^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `serde_json::json`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/analyze/kmeans.rs:9:5[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m9[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse serde_json::json;[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Context`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/clean/winsorize.rs:7:14[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m7[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse anyhow::{Context, Result};[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m              [0m[0m[1m[33m^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Worksheet`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/output/excel_export.rs:9:41[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m9[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse rust_xlsxwriter::{Format, Workbook, Worksheet, FormatAlign};[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m                                         [0m[0m[1m[33m^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Context`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/output/report_export.rs:7:14[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m7[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse anyhow::{Context, Result};[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m              [0m[0m[1m[33m^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Context`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/output/ppt_export.rs:7:14[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m7[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse anyhow::{Context, Result};[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m              [0m[0m[1m[33m^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: ambiguous glob re-exports[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/mod.rs:17:9[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m17[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use charts::*;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^^^[0m[0m [0m[0m[1m[33mthe name `registry` in the type namespace is first re-exported here[0m
+[0m[1m[38;5;12m18[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use analyze::*;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[38;5;12m----------[0m[0m [0m[0m[1m[38;5;12mbut the name `registry` in the type namespace is also re-exported here[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(ambiguous_glob_reexports)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused imports: `create_analysis_presentation`, `export_multiple_to_excel`, `export_to_excel`, `export_to_ppt`, `export_to_report`, and `generate_simple_report`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/dataops/export_tools.rs:19:5[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m19[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    export_to_excel, export_multiple_to_excel, [0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^[0m[0m  [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m[1m[38;5;12m20[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    export_to_report, generate_simple_report,[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^^[0m[0m  [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m[1m[38;5;12m21[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    export_to_ppt, create_analysis_presentation[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^[0m[0m  [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: ambiguous glob re-exports[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/mod.rs:32:9[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m32[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use session::*;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^^^^[0m[0m [0m[0m[1m[33mthe name `MessageRole` in the type namespace is first re-exported here[0m
+[0m[1m[38;5;12m...[0m
+[0m[1m[38;5;12m37[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use llm::*;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[38;5;12m------[0m[0m [0m[0m[1m[38;5;12mbut the name `MessageRole` in the type namespace is also re-exported here[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: ambiguous glob re-exports[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/mod.rs:32:9[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m32[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use session::*;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^^^^[0m[0m [0m[0m[1m[33mthe name `Message` in the type namespace is first re-exported here[0m
+[0m[1m[38;5;12m...[0m
+[0m[1m[38;5;12m37[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use llm::*;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[38;5;12m------[0m[0m [0m[0m[1m[38;5;12mbut the name `Message` in the type namespace is also re-exported here[0m
+
+[0m[1m[33mwarning[0m[0m[1m: ambiguous glob re-exports[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/mod.rs:36:9[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m36[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use functions::*;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^^^^^^[0m[0m [0m[0m[1m[33mthe name `output` in the type namespace is first re-exported here[0m
+[0m[1m[38;5;12m37[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use llm::*;[0m
+[0m[1m[38;5;12m38[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use api::*;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[38;5;12m------[0m[0m [0m[0m[1m[38;5;12mbut the name `output` in the type namespace is also re-exported here[0m
+
+[0m[1m[33mwarning[0m[0m[1m: ambiguous glob re-exports[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/mod.rs:36:9[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m36[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use functions::*;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^^^^^^[0m[0m [0m[0m[1m[33mthe name `color_schemes` in the type namespace is first re-exported here[0m
+[0m[1m[38;5;12m37[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use llm::*;[0m
+[0m[1m[38;5;12m38[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub use api::*;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[38;5;12m------[0m[0m [0m[0m[1m[38;5;12mbut the name `color_schemes` in the type namespace is also re-exported here[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused imports: `MessageRole` and `Message`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/agent_chat.rs:16:36[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m16[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse crate::agent::llm::{LLMClient, Message, MessageRole, OpenAIClient,};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                    [0m[0m[1m[33m^^^^^^^[0m[0m  [0m[0m[1m[33m^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `iteration`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:101:13[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m101[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m        for iteration in 0..self.config.max_iterations {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m             [0m[0m[1m[33m^^^^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_iteration`[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_variables)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `session_id`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:356:9[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m356[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m        session_id: &str,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_session_id`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused import: `futures::StreamExt`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/agent_chat.rs:8:5[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m8[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse futures::StreamExt;[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `target_col_series`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/analyze/decile.rs:154:9[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m154[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    let target_col_series = df.column(target_col)?.f64()?;[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^^^^^^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_target_col_series`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `n`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/analyze/decision_tree.rs:119:9[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m119[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    let n = a.len() as f64;[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_n`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: variable does not need to be mutable[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/output/excel_export.rs:22:9[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m22[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    let mut worksheet = workbook.add_worksheet();[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[38;5;12m----[0m[0m[1m[33m^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[38;5;12mhelp: remove this `mut`[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_mut)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: variable does not need to be mutable[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/output/excel_export.rs:66:13[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m66[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m        let mut worksheet = workbook.add_worksheet();[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m             [0m[0m[1m[38;5;12m----[0m[0m[1m[33m^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m             [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m             [0m[0m[1m[38;5;12mhelp: remove this `mut`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `table_name`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/dataops/data_tools.rs:137:5[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m137[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    table_name: Option<&str>,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_table_name`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `columns`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/dataops/data_tools.rs:138:5[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m138[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    columns: Option<Vec<String>>,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_columns`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `table_name`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/dataops/data_tools.rs:151:5[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m151[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    table_name: Option<&str>,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_table_name`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `row`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/dataops/export_tools.rs:118:19[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m118[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    for (row_idx, row) in df.iter().enumerate() {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                   [0m[0m[1m[33m^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_row`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `tables`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/dataops/export_tools.rs:90:26[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m90[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn tool_export_excel(tables: Vec<String>, filename: Option<String>) -> Result<ExcelExportResult> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                          [0m[0m[1m[33m^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_tables`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `markdown`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/dataops/export_tools.rs:234:9[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m234[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    let markdown = format!([0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_markdown`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `title`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/dataops/export_tools.rs:249:27[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m249[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn tool_export_report(title: &str, sections: Vec<ReportSection>) -> Result<String> {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                           [0m[0m[1m[33m^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_title`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `title`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/dataops/export_tools.rs:318:5[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m318[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    title: &str,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_title`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `name`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/dataops/export_tools.rs:386:5[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m386[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    name: &str,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_name`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `provider_lc`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/agent_chat.rs:430:9[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m430[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    let provider_lc = provider.to_lowercase();[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m         [0m[0m[1m[33m^^^^^^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_provider_lc`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: variable does not need to be mutable[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/loader.rs:294:17[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m294[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            let mut df = first_sheet.1.clone();[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[38;5;12m----[0m[0m[1m[33m^^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[38;5;12mhelp: remove this `mut`[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: constant `MAX_TOKENS_PROPOSE` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:29:7[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m29[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mconst MAX_TOKENS_PROPOSE: u32 = 16384;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m       [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(dead_code)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: constant `MAX_TOKENS_NORMAL` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:30:7[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m30[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mconst MAX_TOKENS_NORMAL: u32 = 8192;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m       [0m[0m[1m[33m^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: fields `llm_client`, `model`, `enable_thinking`, and `session_manager` are never read[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/state_machine.rs:333:5[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m332[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub struct BusinessAgent {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;12m-------------[0m[0m [0m[0m[1m[38;5;12mfields in this struct[0m
+[0m[1m[38;5;12m333[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    llm_client: Arc<dyn LLMClient>,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^[0m
+[0m[1m[38;5;12m334[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    model: String,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^[0m
+[0m[1m[38;5;12m335[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    enable_thinking: bool,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^[0m
+[0m[1m[38;5;12m336[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    session_manager: Arc<Mutex<crate::agent::session::SessionManager>>,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: function `find_mode` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/functions/clean/missing_handler.rs:70:4[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m70[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn find_mode(series: &Series) -> Option<String> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: field `finish_reason` is never read[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/llm/providers/openai.rs:81:5[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m79[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mstruct Choice {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[38;5;12m------[0m[0m [0m[0m[1m[38;5;12mfield in this struct[0m
+[0m[1m[38;5;12m80[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    message: ApiMessage,[0m
+[0m[1m[38;5;12m81[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    finish_reason: Option<String>,[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: field `role` is never read[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/llm/providers/openai.rs:108:5[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m104[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mstruct StreamDelta {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[38;5;12m-----------[0m[0m [0m[0m[1m[38;5;12mfield in this struct[0m
+[0m[1m[38;5;12m...[0m
+[0m[1m[38;5;12m108[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    role: Option<String>,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: field `call_type` is never read[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/agent/llm/providers/openai.rs:119:5[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m115[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mstruct StreamToolCall {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[38;5;12m--------------[0m[0m [0m[0m[1m[38;5;12mfield in this struct[0m
+[0m[1m[38;5;12m...[0m
+[0m[1m[38;5;12m119[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    call_type: Option<String>,[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `StreamToolCall` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: function `execute_tool_call` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/agent_chat.rs:24:10[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m24[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0masync fn execute_tool_call(tool_name: &str, args_str: &str) -> Result<String, String> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m          [0m[0m[1m[33m^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: method `add_message` is never used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/agent_chat.rs:187:8[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m152[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mimpl SessionManager {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[38;5;12m-------------------[0m[0m [0m[0m[1m[38;5;12mmethod in this implementation[0m
+[0m[1m[38;5;12m...[0m
+[0m[1m[38;5;12m187[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn add_message(&mut self, session_id: &str, role: &str, content: &str) -> Result<(), String> {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: function `build_system_prompt` is never used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/agent_chat.rs:374:4[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m374[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn build_system_prompt(command: Option<&str>) -> String {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: function `get_agent_tools_local` is never used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/agent_chat.rs:938:4[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m938[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn get_agent_tools_local() -> Vec<serde_json::Value> {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: function `read_excel_impl` is never used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/loader.rs:740:4[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m740[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn read_excel_impl(path: &Path, skip_head: usize, skip_tail: usize) -> Result<DataFrame> {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/clean.rs:67:13[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m67[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            sync_active_dataset();[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m             [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_must_use)]` on by default[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m67[0m[0m [0m[0m[1m[38;5;12m| [0m[0m            [0m[0m[38;5;10mlet _ = [0m[0msync_active_dataset();[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m             [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/clean.rs:91:5[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m91[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    sync_active_dataset();[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m91[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    [0m[0m[38;5;10mlet _ = [0m[0msync_active_dataset();[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[38;5;10m+++++++[0m
+
+[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/clean.rs:114:5[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m114[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    sync_active_dataset();[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m114[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    [0m[0m[38;5;10mlet _ = [0m[0msync_active_dataset();[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/loader.rs:57:13[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m57[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            register_dataset(&df, file_name, "load_file".to_string());[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m             [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m57[0m[0m [0m[0m[1m[38;5;12m| [0m[0m            [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset(&df, file_name, "load_file".to_string());[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m             [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/loader.rs:133:5[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m133[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    register_dataset(&merged, dataset_name, "load_files".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m133[0m[0m [0m[0m[1m[38;5;12m| [0m[0m    [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset(&merged, dataset_name, "load_files".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/loader.rs:304:17[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m304[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m/[0m[0m [0m[0m                crate::state::register_dataset([0m
+[0m[1m[38;5;12m305[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                    &cleaned_df,[0m
+[0m[1m[38;5;12m306[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                    sheet_name.clone(),[0m
+[0m[1m[38;5;12m307[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                    "excel_sheet".to_string(),[0m
+[0m[1m[38;5;12m308[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                );[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|_________________^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m304[0m[0m [0m[0m[1m[38;5;12m| [0m[0m                [0m[0m[38;5;10mlet _ = [0m[0mcrate::state::register_dataset([0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/melt.rs:40:17[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m40[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m/[0m[0m [0m[0m                register_dataset([0m
+[0m[1m[38;5;12m41[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                    &result_df,[0m
+[0m[1m[38;5;12m42[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                    dataset_name.unwrap_or(default_name),[0m
+[0m[1m[38;5;12m43[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                    "melt_data".to_string(),[0m
+[0m[1m[38;5;12m44[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                );[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|_________________^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m40[0m[0m [0m[0m[1m[38;5;12m| [0m[0m                [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset([0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/merge.rs:75:17[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m75[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m                register_dataset(&result, name, "join_datasets".to_string());[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m75[0m[0m [0m[0m[1m[38;5;12m| [0m[0m                [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset(&result, name, "join_datasets".to_string());[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/merge.rs:177:17[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m177[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m                register_dataset(&result, name, "concat_datasets".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m177[0m[0m [0m[0m[1m[38;5;12m| [0m[0m                [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset(&result, name, "concat_datasets".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/merge.rs:262:17[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m262[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m                register_dataset(&result, name, "concat_paths".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m262[0m[0m [0m[0m[1m[38;5;12m| [0m[0m                [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset(&result, name, "concat_paths".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/pivot.rs:41:17[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m41[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m/[0m[0m [0m[0m                register_dataset([0m
+[0m[1m[38;5;12m42[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                    &result_df,[0m
+[0m[1m[38;5;12m43[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                    dataset_name.unwrap_or(default_name),[0m
+[0m[1m[38;5;12m44[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                    "pivot_data".to_string(),[0m
+[0m[1m[38;5;12m45[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|[0m[0m [0m[0m                );[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m [0m[0m[1m[33m|_________________^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m41[0m[0m [0m[0m[1m[38;5;12m| [0m[0m                [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset([0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/time_analysis.rs:52:13[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m52[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            register_dataset(&result_df, name, "time_derive".to_string());[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m             [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m52[0m[0m [0m[0m[1m[38;5;12m| [0m[0m            [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset(&result_df, name, "time_derive".to_string());[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m             [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/time_analysis.rs:105:17[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m105[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m                register_dataset(&result_df, dataset_name.unwrap_or(default_name), "time_agg".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m105[0m[0m [0m[0m[1m[38;5;12m| [0m[0m                [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset(&result_df, dataset_name.unwrap_or(default_name), "time_agg".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/time_analysis.rs:219:17[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m219[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m                register_dataset(&result_df, dataset_name.unwrap_or(default_name), "time_rolling_avg".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m219[0m[0m [0m[0m[1m[38;5;12m| [0m[0m                [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset(&result_df, dataset_name.unwrap_or(default_name), "time_rolling_avg".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/time_analysis.rs:370:17[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m370[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m                register_dataset(&result_df, dataset_name.unwrap_or(default_name), "time_growth_rate".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m370[0m[0m [0m[0m[1m[38;5;12m| [0m[0m                [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset(&result_df, dataset_name.unwrap_or(default_name), "time_growth_rate".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[0m[1m[33mwarning[0m[0m[1m: unused `Result` that must be used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0msrc/commands/time_analysis.rs:646:17[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m646[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m                register_dataset(&result_df, dataset_name.unwrap_or(default_name), "time_fill_missing".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: this `Result` may be an `Err` variant, which should be handled[0m
+[0m[1m[38;5;14mhelp[0m[0m: use `let _ = ...` to ignore the resulting value[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m646[0m[0m [0m[0m[1m[38;5;12m| [0m[0m                [0m[0m[38;5;10mlet _ = [0m[0mregister_dataset(&result_df, dataset_name.unwrap_or(default_name), "time_fill_missing".to_string());[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                 [0m[0m[38;5;10m+++++++[0m
+
+[1m[36m    Building[0m [=======================> ] 778/780: tauri-vue-bi                [K[1m[33mwarning[0m[1m:[0m `tauri-vue-bi` (lib) generated 72 warnings (run `cargo fix --lib -p tauri-vue-bi` to apply 24 suggestions)
+[1m[36m    Building[0m [=======================> ] 779/780: tauri-vue-bi(bin)           [K[1m[32m    Finished[0m ]8;;https://doc.rust-lang.org/cargo/reference/profiles.html#default-profiles\`dev` profile [unoptimized + debuginfo]]8;;\ target(s) in 17.85s
+[1m[32m     Running[0m `target/debug/tauri-vue-bi`

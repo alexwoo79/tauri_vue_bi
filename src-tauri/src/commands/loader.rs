@@ -180,7 +180,11 @@ pub async fn load_paths_as_datasets(
             .and_then(|s| s.to_str())
             .unwrap_or("加载数据")
             .to_string();
-        let dataset_id = register_dataset(&output.df, file_name, "load_paths_as_datasets".to_string())?;
+        let dataset_id =
+            match register_dataset(&output.df, file_name, "load_paths_as_datasets".to_string()) {
+                Ok(id) => id,
+                Err(e) => return ApiResult::failure(format!("注册数据集失败: {e}")),
+            };
 
         if first_df.is_none() {
             first_dataset_id = dataset_id;
@@ -283,22 +287,27 @@ pub fn load_file_impl(
             };
 
             // ✅ 第一个 sheet 作为主数据集
-            let first_sheet = all_sheets.first()
+            let first_sheet = all_sheets
+                .first()
                 .ok_or_else(|| anyhow!("No valid sheets found"))?;
-            
+
             let mut df = first_sheet.1.clone();
-            
+
             // ✅ 将所有 sheet 注册为独立数据集
             for (sheet_name, sheet_df) in &all_sheets {
                 // 清理和类型转换
                 let cleaned_df = drop_all_null_cols(sheet_df.clone());
                 let (cleaned_df, _notices) = auto_cast_business_float_columns(cleaned_df)?;
                 let cleaned_df = auto_cast_temporal_columns(cleaned_df)?;
-                
+
                 // 注册数据集（使用 sheet 名称）
-                crate::state::register_dataset(&cleaned_df, sheet_name.clone(), "excel_sheet".to_string());
+                crate::state::register_dataset(
+                    &cleaned_df,
+                    sheet_name.clone(),
+                    "excel_sheet".to_string(),
+                );
             }
-            
+
             df
         }
         other => bail!("Unsupported file extension: .{other}"),
@@ -760,7 +769,10 @@ fn read_excel_impl(path: &Path, skip_head: usize, skip_tail: usize) -> Result<Da
         };
 
         if data_start >= data_end {
-            tracing::warn!("[ExcelDS] sheet '{}' skipped (no rows after skip)", sheet_name);
+            tracing::warn!(
+                "[ExcelDS] sheet '{}' skipped (no rows after skip)",
+                sheet_name
+            );
             continue;
         }
 
@@ -797,14 +809,15 @@ fn read_excel_impl(path: &Path, skip_head: usize, skip_tail: usize) -> Result<Da
             let name: PlSmallStr = headers[c].as_str().into();
             let all_numeric = data_rows.iter().all(|row| match row[c] {
                 None | Some(XlDataType::Empty) => true,
-                Some(XlDataType::Float(_)) | Some(XlDataType::Int(_)) | Some(XlDataType::Bool(_)) => {
-                    true
-                }
+                Some(XlDataType::Float(_))
+                | Some(XlDataType::Int(_))
+                | Some(XlDataType::Bool(_)) => true,
                 _ => false,
             });
 
             let col: Column = if all_numeric {
-                let vals: Vec<Option<f64>> = data_rows.iter().map(|row| cell_to_f64(row[c])).collect();
+                let vals: Vec<Option<f64>> =
+                    data_rows.iter().map(|row| cell_to_f64(row[c])).collect();
                 Series::new(name, vals).into()
             } else {
                 let vals: Vec<Option<String>> = data_rows
@@ -820,17 +833,21 @@ fn read_excel_impl(path: &Path, skip_head: usize, skip_tail: usize) -> Result<Da
         }
 
         let df = DataFrame::new(series_vec).map_err(|e| anyhow!("{e}"))?;
-        
+
         // ✅ 第一个 sheet 作为主数据集返回
         if first_df.is_none() {
             first_df = Some(df.clone());
         }
-        
+
         // ✅ 将所有 sheet 注册为独立数据集（供后续切换使用）
         // 注意：这里不直接调用 register_dataset，因为该函数需要访问全局状态
         // 而是在 load_file_impl 中处理
         sheet_count += 1;
-        tracing::info!("[ExcelDS] sheet '{}' loaded OK ({} rows)", sheet_name, df.height());
+        tracing::info!(
+            "[ExcelDS] sheet '{}' loaded OK ({} rows)",
+            sheet_name,
+            df.height()
+        );
     }
 
     if sheet_count == 0 {
@@ -876,7 +893,10 @@ fn read_all_excel_sheets(
         };
 
         if data_start >= data_end {
-            tracing::warn!("[ExcelDS] sheet '{}' skipped (no rows after skip)", sheet_name);
+            tracing::warn!(
+                "[ExcelDS] sheet '{}' skipped (no rows after skip)",
+                sheet_name
+            );
             continue;
         }
 
@@ -913,14 +933,15 @@ fn read_all_excel_sheets(
             let name: PlSmallStr = headers[c].as_str().into();
             let all_numeric = data_rows.iter().all(|row| match row[c] {
                 None | Some(XlDataType::Empty) => true,
-                Some(XlDataType::Float(_)) | Some(XlDataType::Int(_)) | Some(XlDataType::Bool(_)) => {
-                    true
-                }
+                Some(XlDataType::Float(_))
+                | Some(XlDataType::Int(_))
+                | Some(XlDataType::Bool(_)) => true,
                 _ => false,
             });
 
             let col: Column = if all_numeric {
-                let vals: Vec<Option<f64>> = data_rows.iter().map(|row| cell_to_f64(row[c])).collect();
+                let vals: Vec<Option<f64>> =
+                    data_rows.iter().map(|row| cell_to_f64(row[c])).collect();
                 Series::new(name, vals).into()
             } else {
                 let vals: Vec<Option<String>> = data_rows
@@ -938,7 +959,11 @@ fn read_all_excel_sheets(
         let df = DataFrame::new(series_vec).map_err(|e| anyhow!("{e}"))?;
         let df_height = df.height(); // ✅ 先获取高度
         results.push((sheet_name.clone(), df));
-        tracing::info!("[ExcelDS] sheet '{}' loaded OK ({} rows)", sheet_name, df_height);
+        tracing::info!(
+            "[ExcelDS] sheet '{}' loaded OK ({} rows)",
+            sheet_name,
+            df_height
+        );
     }
 
     if results.is_empty() {

@@ -15,32 +15,38 @@ pub fn winsorize(
     upper_pct: f64,
 ) -> Result<DataFrame> {
     let mut result = df.clone();
-    
+
     for &col in columns {
         let col_ref = df.column(col)?;
         let dt = col_ref.dtype();
-        
+
         if !dt.is_integer() && !dt.is_float() {
             continue;
         }
-        
+
         // Polars 0.46 兼容：转换为 Series 后处理
-        let series = col_ref.as_series();
+        let series = match col_ref.as_series() {
+            Some(s) => s,
+            None => continue,
+        };
         let f64_series = series.f64()?;
-        
-        let lower_bound = f64_series.quantile(lower_pct / 100.0, QuantileInterpolOptions::default())?;
-        let upper_bound = f64_series.quantile(upper_pct / 100.0, QuantileInterpolOptions::default())?;
-        
+
+        let lower_bound =
+            f64_series.quantile(lower_pct / 100.0, polars::prelude::QuantileMethod::Nearest)?;
+        let upper_bound =
+            f64_series.quantile(upper_pct / 100.0, polars::prelude::QuantileMethod::Nearest)?;
+
         let lower_val = lower_bound.unwrap_or(f64::NEG_INFINITY);
         let upper_val = upper_bound.unwrap_or(f64::INFINITY);
-        
+
         // 手动实现 clamp 功能
-        let winsorized = f64_series.apply(|v: f64| v.max(lower_val).min(upper_val));
+        let winsorized =
+            f64_series.apply(|v: Option<f64>| v.map(|x| x.max(lower_val).min(upper_val)));
         let winsorized_series = winsorized.into_series();
-        
+
         result.with_column(winsorized_series)?;
     }
-    
+
     Ok(result)
 }
 

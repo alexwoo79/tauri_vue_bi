@@ -4,10 +4,7 @@
 //
 // 功能：生成数据概况报告，包括列类型、缺失值统计、基本统计量
 
-use anyhow::{Context, Result};
 use polars::prelude::*;
-use serde_json::json;
-use std::collections::HashMap;
 
 /// 列统计信息
 #[derive(Debug, Clone, serde::Serialize)]
@@ -41,24 +38,24 @@ pub struct DataProfile {
 }
 
 /// 生成数据概况报告
-pub fn generate_data_profile(df: &DataFrame) -> Result<DataProfile> {
+pub fn generate_data_profile(df: &DataFrame) -> Result<DataProfile, PolarsError> {
     let n_rows = df.height();
     let n_cols = df.width();
     let n_cells = n_rows * n_cols;
-    
+
     let mut missing_cells = 0;
     let mut columns: Vec<ColumnStats> = Vec::new();
-    
+
     for col in df.get_columns() {
         let stats = analyze_column(df, col.name(), n_rows);
         missing_cells += stats.missing_count;
         columns.push(stats);
     }
-    
+
     let missing_pct = (missing_cells as f64 / n_cells as f64) * 100.0;
-    
+
     let summary = generate_summary(n_rows, n_cols, missing_cells, &columns);
-    
+
     Ok(DataProfile {
         n_rows,
         n_cols,
@@ -78,19 +75,22 @@ fn analyze_column(df: &DataFrame, col_name: &str, total_rows: usize) -> ColumnSt
     let count = col.len();
     let missing_count = col.null_count();
     let missing_pct = (missing_count as f64 / total_rows as f64) * 100.0;
-    
+
     let dt = col.dtype();
     let is_num = dt.is_integer() || dt.is_float();
     let is_str = dt.is_string();
-    
+
     // 获取唯一值统计
     let (unique_count, unique_pct) = if is_num || is_str {
         let unique = col.n_unique().unwrap_or(0);
-        (Some(unique), Some((unique as f64 / total_rows as f64) * 100.0))
+        (
+            Some(unique),
+            Some((unique as f64 / total_rows as f64) * 100.0),
+        )
     } else {
         (None, None)
     };
-    
+
     // ✅ 修复：新版空数组创建
     let (min, max, mean, std, median) = if is_num {
         match col.f64() {
@@ -98,7 +98,7 @@ fn analyze_column(df: &DataFrame, col_name: &str, total_rows: usize) -> ColumnSt
                 f64_col.min(),
                 f64_col.max(),
                 f64_col.mean(),
-                f64_col.std(QuantileMethod::Nearest),
+                f64_col.std(1),
                 f64_col.median(),
             ),
             Err(_) => (None, None, None, None, None),
@@ -106,42 +106,44 @@ fn analyze_column(df: &DataFrame, col_name: &str, total_rows: usize) -> ColumnSt
     } else {
         (None, None, None, None, None)
     };
-    
+
     // 计算众数
     let mode = if is_str || is_num {
         match col.as_series() {
-            Some(series) => match series.value_counts(false, false, None) {
-                Ok(vc) => {
-                    if vc.height() > 0 {
-                        match vc.column("value") {
-                            Ok(val_col) => match val_col.get(0) {
-                                Ok(Some(val)) => Some(format!("{}", val)),
-                                _ => None,
-                            },
-                            Err(_) => None,
+            Some(series) => {
+                match series.value_counts(
+                    false,
+                    false,
+                    polars::prelude::PlSmallStr::from(""),
+                    false,
+                ) {
+                    Ok(vc) => {
+                        if vc.height() > 0 {
+                            match vc.column("value") {
+                                Ok(val_col) => val_col.get(0).ok().map(|val| format!("{}", val)),
+                                Err(_) => None,
+                            }
+                        } else {
+                            None
                         }
-                    } else {
-                        None
                     }
+                    Err(_) => None,
                 }
-                Err(_) => None,
-            },
+            }
             None => None,
         }
     } else {
         None
     };
-    
+
     // 获取样本值
     let sample_values: Vec<String> = (0..col.len().min(5))
-        .filter_map(|i| {
-            match col.get(i) {
-                Ok(v) => Some(format!("{:?}", v)),
-                Err(_) => None,
-            }
+        .filter_map(|i| match col.get(i) {
+            Ok(v) => Some(format!("{:?}", v)),
+            Err(_) => None,
         })
         .collect();
-    
+
     ColumnStats {
         name,
         dtype,
@@ -161,25 +163,50 @@ fn analyze_column(df: &DataFrame, col_name: &str, total_rows: usize) -> ColumnSt
 }
 
 /// 生成数据概况摘要
-fn generate_summary(n_rows: usize, n_cols: usize, missing_cells: usize, columns: &[ColumnStats]) -> String {
+fn generate_summary(
+    n_rows: usize,
+    n_cols: usize,
+    missing_cells: usize,
+    columns: &[ColumnStats],
+) -> String {
     let mut summary = String::new();
-    
-    summary.push_str(&format!("数据集包含 {} 行、{} 列，共 {} 个单元格。\n", n_rows, n_cols, n_rows * n_cols));
-    
+
+    summary.push_str(&format!(
+        "数据集包含 {} 行、{} 列，共 {} 个单元格。\n",
+        n_rows,
+        n_cols,
+        n_rows * n_cols
+    ));
+
     let missing_pct = (missing_cells as f64 / (n_rows * n_cols) as f64) * 100.0;
-    summary.push_str(&format!("缺失值占比: {:.2}% ({} 个单元格)\n", missing_pct, missing_cells));
-    
-    let num_cols = columns.iter().filter(|c| c.dtype.contains("Int") || c.dtype.contains("Float")).count();
-    let str_cols = columns.iter().filter(|c| c.dtype.contains("String")).count();
-    let date_cols = columns.iter().filter(|c| c.dtype.contains("Date") || c.dtype.contains("Time")).count();
-    
-    summary.push_str(&format!("列类型分布: 数值型 {} 列, 字符串 {} 列, 日期时间 {} 列\n", num_cols, str_cols, date_cols));
-    
+    summary.push_str(&format!(
+        "缺失值占比: {:.2}% ({} 个单元格)\n",
+        missing_pct, missing_cells
+    ));
+
+    let num_cols = columns
+        .iter()
+        .filter(|c| c.dtype.contains("Int") || c.dtype.contains("Float"))
+        .count();
+    let str_cols = columns
+        .iter()
+        .filter(|c| c.dtype.contains("String"))
+        .count();
+    let date_cols = columns
+        .iter()
+        .filter(|c| c.dtype.contains("Date") || c.dtype.contains("Time"))
+        .count();
+
+    summary.push_str(&format!(
+        "列类型分布: 数值型 {} 列, 字符串 {} 列, 日期时间 {} 列\n",
+        num_cols, str_cols, date_cols
+    ));
+
     let high_missing_cols = columns.iter().filter(|c| c.missing_pct > 50.0).count();
     if high_missing_cols > 0 {
         summary.push_str(&format!("警告: {} 列缺失值超过 50%\n", high_missing_cols));
     }
-    
+
     summary
 }
 

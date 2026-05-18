@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capability for main window","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open","dialog:allow-save","fs:default","fs:allow-write-file","fs:allow-read-file","fs:allow-mkdir",{"identifier":"fs:scope","allow":[{"path":"$APPDATA/**"},{"path":"$APPDATA/*"},{"path":"$TEMP/**"},{"path":"$TEMP/*"}]}]}}
+{}

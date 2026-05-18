@@ -26,20 +26,17 @@ pub struct Presentation {
 }
 
 /// 将演示文稿导出为 PPT 文件
-/// 
+///
 /// 注意：此实现为简化版本，实际项目中可能需要使用专门的 PPT 库
-pub fn export_to_ppt(
-    presentation: &Presentation,
-    filepath: &Path,
-) -> Result<()> {
+pub fn export_to_ppt(presentation: &Presentation, filepath: &Path) -> Result<()> {
     // 创建 PPTX 文件（简化实现）
     // 实际项目中可以使用 rust-pptx 或其他库
     println!("导出 PPT: {} 到 {}", presentation.title, filepath.display());
     println!("幻灯片数量: {}", presentation.slides.len());
-    
+
     // 这里只是模拟导出过程
     // 在实际项目中，需要使用 PPT 库来生成真实的 PPTX 文件
-    
+
     Ok(())
 }
 
@@ -47,11 +44,11 @@ pub fn export_to_ppt(
 pub fn create_analysis_presentation(
     title: &str,
     summary: &str,
-    charts: &[(&str, &str)], // (标题, 图表路径)
+    charts: &[(&str, &str)],           // (标题, 图表路径)
     dataframes: &[(&str, &DataFrame)], // (标题, 数据)
 ) -> Result<Presentation> {
     let mut slides = Vec::new();
-    
+
     // 封面页
     slides.push(SlideContent {
         title: title.to_string(),
@@ -60,7 +57,7 @@ pub fn create_analysis_presentation(
         chart_path: None,
         table_data: None,
     });
-    
+
     // 摘要页
     slides.push(SlideContent {
         title: "分析摘要".to_string(),
@@ -69,7 +66,7 @@ pub fn create_analysis_presentation(
         chart_path: None,
         table_data: None,
     });
-    
+
     // 图表页
     for (chart_title, chart_path) in charts {
         slides.push(SlideContent {
@@ -80,7 +77,7 @@ pub fn create_analysis_presentation(
             table_data: None,
         });
     }
-    
+
     // 数据表格页
     for (table_title, df) in dataframes {
         slides.push(SlideContent {
@@ -88,10 +85,10 @@ pub fn create_analysis_presentation(
             subtitle: None,
             content: "".to_string(),
             chart_path: None,
-            table_data: Some(df.to_owned()),
+            table_data: Some((*df).clone()),
         });
     }
-    
+
     Ok(Presentation {
         title: title.to_string(),
         slides,

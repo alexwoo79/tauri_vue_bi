@@ -16,7 +16,7 @@ use polars::sql::SQLContext;
 
 use crate::agent::functions::{
     analyze::{run_decile_analysis, run_decision_tree, run_kmeans},
-    clean::{fill_missing_values, trim, winsorize, FillStrategy, generate_data_profile},
+    clean::{fill_missing_values, generate_data_profile, trim, winsorize, FillStrategy},
 };
 use crate::state::GLOBAL_DF;
 
@@ -157,13 +157,9 @@ pub fn tool_clean_data(
     let mut df_guard = GLOBAL_DF.lock().unwrap();
     let df = df_guard.as_mut().context("没有加载的数据集")?;
 
-    let col_refs: Vec<&str> = columns
-        .unwrap_or_default()
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
-
-    let col_slice: &[&str] = col_refs.as_slice();
+    let col_refs: Vec<String> = columns.unwrap_or_default();
+    let col_str_refs: Vec<&str> = col_refs.iter().map(|s| s.as_str()).collect();
+    let col_slice: &[&str] = col_str_refs.as_slice();
 
     match operation {
         "remove_duplicates" => {

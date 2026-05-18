@@ -40,8 +40,10 @@
     ]
   },
   "plugins": {
-    "opener": null,
     "dialog": null,
-    "fs": null
+    "event": null,
+    "fs": null,
+    "path": null,
+    "opener": null
   }
 }
